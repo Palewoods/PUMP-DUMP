@@ -1,1 +1,67 @@
-This is gonna suck
+# Sub5
+
+A fast-paced first-person movement shooter, built in Rust with [Bevy](https://bevyengine.org/). Right now it's a movement sandbox: a greybox map for running, sliding, wall-running and chaining it all together at high speed. Shooting comes later.
+
+## Movement
+
+- **Sprint and jump**, with snappy starts and hard stops (no ice-skating), plus a little forgiveness: you can still jump just after running off a ledge, and a jump pressed just before landing still fires.
+- **Double jump.** It also turns you towards the direction you're holding.
+- **Wall-run.** Jump at a wall while moving along it. Runs last up to 3.5 seconds.
+- **Wall jumps.** Up to 3 before you land again. Jump looking along the wall to *hop* and keep running, or looking away to *kick off* towards another wall.
+- **Wall-hang.** Grab a wall mid-air and hold still.
+- **Slide.** Sprint and slide for a speed boost. Jump out of the slide and land still holding slide to boost again: speed keeps building up to a cap of 1600 units/s (about 40 m/s, over 3× sprint speed). Sliding downhill speeds you up.
+
+Every movement number lives in [`crates/pf-sandbox/assets/movement.ron`](crates/pf-sandbox/assets/movement.ron). Edit it while the game is running: it reloads when you save.
+
+## Controls
+
+| Action | Keyboard and mouse | Controller |
+|---|---|---|
+| Move | WASD | Left stick |
+| Look | Mouse | Right stick |
+| Jump / double jump / wall jump | Space | A |
+| Sprint | Shift (hold) | L3 (click to toggle) |
+| Slide | Ctrl or C (hold) | B (hold) |
+| Wall-hang | Right mouse (hold) | LT (hold) |
+| Back to spawn | R | Back |
+| Free the mouse | Esc (click the window to capture it again) | |
+
+## Running it
+
+You need [Rust](https://www.rust-lang.org/tools/install) (latest stable).
+
+- **Windows:** Rust also needs the Visual Studio C++ Build Tools. The Rust installer offers to set them up.
+- **Linux:** Bevy needs a few system libraries (ALSA and udev). See [Bevy's Linux setup guide](https://github.com/bevyengine/bevy/blob/main/docs/linux_dependencies.md).
+
+Then, from the repository folder:
+
+```
+cargo run -p pf-sandbox
+```
+
+The first build compiles Bevy and takes several minutes. Later builds are quick. On Windows you can also double-click `run-sandbox.cmd`.
+
+## Project layout
+
+- [`crates/pf-movement`](crates/pf-movement): all the movement rules. It doesn't depend on Bevy: each tick is a plain function of (state, input, world), so it runs the same in tests, in the game, and later on a server for multiplayer.
+- [`crates/pf-sandbox`](crates/pf-sandbox): the game itself. Bevy app, greybox map, first-person camera, keyboard/mouse and controller input.
+
+Run the tests with:
+
+```
+cargo test --workspace
+```
+
+## Contributing
+
+Issues and pull requests are welcome. Before opening a pull request, please run:
+
+```
+cargo fmt --all
+cargo clippy --workspace --all-targets
+cargo test --workspace
+```
+
+## License
+
+Sub5 is free software, released under the [GNU General Public License v3.0](LICENSE). You can use, study, change and share it. If you distribute a game or program built on this code, you must release its source under the same license.
