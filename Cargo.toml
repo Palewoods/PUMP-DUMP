@@ -1,0 +1,31 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[workspace.dependencies]
+pf-movement = { path = "crates/pf-movement" }
+serde = { version = "1", features = ["derive"] }
+# Bevy breaks its API every few months, so the whole workspace pins one version.
+bevy = "=0.19.1"
+leafwing-input-manager = "=0.21.0"
+# Must match the glam that Bevy uses, so `Vec3` is the same type on both sides.
+glam = { version = "0.32", features = ["serde"] }
+parry3d = "0.31"
+ron = "0.12"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+# Debug builds of Bevy are too slow to play. Optimise dependencies (built once,
+# then cached) and lightly optimise our own code, keeping debug info and fast rebuilds.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

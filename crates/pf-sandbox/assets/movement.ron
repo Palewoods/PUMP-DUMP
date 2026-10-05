@@ -1,0 +1,57 @@
+// Pilot movement tuning, read by pf-movement through the sandbox. Every value is
+// tuned by feel: change it, save, and try it.
+//
+// Units: game units (~1 inch), seconds, degrees.
+// The sandbox reloads this file when you save it, no restart needed.
+(
+    // Body
+    capsule_radius: 16.0,
+    capsule_height: 72.0,
+    eye_height: 60.0,
+
+    // Ground movement. High accel and friction: snappy starts, hard stops, no drift.
+    walk_speed: 320.0,
+    sprint_speed: 480.0,
+    ground_accel: 6000.0,
+    ground_friction: 6000.0,
+    overspeed_decel: 500.0,
+
+    // Slide. Hold slide while sprinting; landing while holding it slides too.
+    // Each slide start adds slide_boost (once per cooldown), so slide-hopping
+    // keeps building speed up to max_speed.
+    slide_start_speed: 380.0,
+    slide_min_speed: 150.0,
+    slide_boost: 180.0,
+    slide_boost_cooldown: 0.6,
+    slide_friction: 120.0,
+    slide_steer: 500.0,
+
+    // Air
+    air_accel: 1000.0,
+    // Hard cap on flat speed, however it's gained (slide-hops, wall-runs).
+    max_speed: 1600.0,
+    gravity: 1000.0,
+    jump_height: 110.0,
+    coyote_time: 0.12,
+    jump_buffer_time: 0.12,
+    air_jumps: 1,
+    air_jump_height: 96.0,
+    air_jump_redirect: 0.7,
+
+    // Walls
+    wall_run_speed: 700.0,
+    wall_run_accel: 1500.0,
+    wall_run_min_speed: 250.0,
+    wall_run_gravity: 120.0,
+    wall_run_rise_speed: 200.0,
+    wall_run_max_time: 3.5,
+    wall_hang_max_time: 3.0,
+    wall_min_height: 24.0,
+    wall_jump_push: 450.0,
+    wall_jumps: 3,
+    wall_hop_height: 64.0,
+
+    // Terrain
+    max_slope_deg: 45.0,
+    step_height: 18.0,
+)

@@ -1,0 +1,18 @@
+[package]
+name = "pf-movement"
+description = "Pilot movement as a pure fixed-tick function (no Bevy, WASM-safe)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+glam.workspace = true
+parry3d.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+ron.workspace = true
+
+[lints]
+workspace = true

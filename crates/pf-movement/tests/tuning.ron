@@ -1,0 +1,19 @@
+// Test values, not the sandbox's placeholders, so tests don't break when tuning
+// changes. Shared by the unit tests in src/ and the behaviour tests in tests/.
+(
+    capsule_radius: 16.0, capsule_height: 72.0, eye_height: 64.0,
+    walk_speed: 200.0, sprint_speed: 300.0,
+    ground_accel: 2000.0, ground_friction: 2000.0, overspeed_decel: 300.0,
+    air_accel: 400.0, max_speed: 1000.0,
+    slide_start_speed: 250.0, slide_min_speed: 100.0, slide_boost: 100.0,
+    slide_boost_cooldown: 0.5, slide_friction: 100.0, slide_steer: 300.0,
+    gravity: 800.0, jump_height: 50.0,
+    coyote_time: 0.1, jump_buffer_time: 0.1,
+    air_jumps: 1, air_jump_height: 40.0, air_jump_redirect: 1.0,
+    wall_run_speed: 450.0, wall_run_accel: 600.0, wall_run_min_speed: 150.0,
+    wall_run_gravity: 150.0, wall_run_rise_speed: 100.0,
+    wall_run_max_time: 1.5, wall_hang_max_time: 2.0,
+    wall_min_height: 24.0, wall_jump_push: 300.0,
+    wall_jumps: 3, wall_hop_height: 30.0,
+    max_slope_deg: 45.0, step_height: 18.0,
+)

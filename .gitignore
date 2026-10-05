@@ -1,0 +1,9 @@
+# Build output
+target/
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
