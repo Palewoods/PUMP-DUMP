@@ -4370,27 +4370,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pf-movement"
-version = "0.0.1"
-dependencies = [
- "glam 0.32.1",
- "parry3d",
- "ron",
- "serde",
-]
-
-[[package]]
-name = "pf-sandbox"
-version = "0.0.1"
-dependencies = [
- "bevy",
- "leafwing-input-manager",
- "pf-movement",
- "ron",
- "serde",
-]
-
-[[package]]
 name = "pin-project"
 version = "1.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4530,6 +4509,27 @@ name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
+
+[[package]]
+name = "pumpdump"
+version = "0.0.1"
+dependencies = [
+ "bevy",
+ "leafwing-input-manager",
+ "pumpdump-movement",
+ "ron",
+ "serde",
+]
+
+[[package]]
+name = "pumpdump-movement"
+version = "0.0.1"
+dependencies = [
+ "glam 0.32.1",
+ "parry3d",
+ "ron",
+ "serde",
+]
 
 [[package]]
 name = "pxfm"

@@ -1,6 +1,6 @@
 [package]
-name = "pf-movement"
-description = "Pilot movement as a pure fixed-tick function (no Bevy, WASM-safe)"
+name = "pumpdump-movement"
+description = "PUMP&DUMP movement: a pure fixed-tick function (no Bevy, WASM-safe)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -9,7 +9,7 @@ license = "GPL-3.0-only"
 publish = false
 
 [workspace.dependencies]
-pf-movement = { path = "crates/pf-movement" }
+pumpdump-movement = { path = "crates/pumpdump-movement" }
 serde = { version = "1", features = ["derive"] }
 # Bevy breaks its API every few months, so the whole workspace pins one version.
 bevy = "=0.19.1"

@@ -3,7 +3,7 @@
 
 use bevy::asset::{AssetLoader, LoadContext, io::Reader};
 use bevy::prelude::*;
-use pf_movement::MovementTuning;
+use pumpdump_movement::MovementTuning;
 
 pub struct TuningPlugin;
 
@@ -16,7 +16,7 @@ impl Plugin for TuningPlugin {
     }
 }
 
-/// Bevy note: assets must be Bevy types, but `pf-movement` must not depend on Bevy.
+/// Bevy note: assets must be Bevy types, but `pumpdump-movement` must not depend on Bevy.
 /// So we wrap its plain struct in a newtype that Bevy can store.
 #[derive(Asset, TypePath, Deref)]
 pub struct TuningAsset(pub MovementTuning);

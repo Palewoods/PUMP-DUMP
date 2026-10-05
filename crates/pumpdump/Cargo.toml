@@ -1,6 +1,6 @@
 [package]
-name = "pf-sandbox"
-description = "Greybox movement sandbox: drives pf-movement in a Bevy app"
+name = "pumpdump"
+description = "PUMP&DUMP: a fast-paced first-person movement game (Bevy app)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ publish.workspace = true
 # `file_watcher` reloads assets/movement.ron while the game runs.
 bevy = { workspace = true, features = ["file_watcher"] }
 leafwing-input-manager.workspace = true
-pf-movement.workspace = true
+pumpdump-movement.workspace = true
 ron.workspace = true
 serde.workspace = true
 

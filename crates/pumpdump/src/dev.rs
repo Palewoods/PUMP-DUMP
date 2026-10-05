@@ -1,6 +1,6 @@
 //! Development helpers.
 //!
-//! `PF_SANDBOX_SCREENSHOT=path.png cargo run -p pf-sandbox` saves a screenshot
+//! `PUMPDUMP_SCREENSHOT=path.png cargo run -p pumpdump` saves a screenshot
 //! after two seconds and quits: a quick check that the app starts and renders.
 
 use std::path::PathBuf;
@@ -12,7 +12,7 @@ pub struct DevPlugin;
 
 impl Plugin for DevPlugin {
     fn build(&self, app: &mut App) {
-        if let Some(path) = std::env::var_os("PF_SANDBOX_SCREENSHOT") {
+        if let Some(path) = std::env::var_os("PUMPDUMP_SCREENSHOT") {
             app.insert_resource(ScreenshotTo(path.into()))
                 .add_systems(Update, screenshot_then_exit);
         }

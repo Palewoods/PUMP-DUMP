@@ -10,7 +10,7 @@ use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use pf_movement::StaticWorld;
+use pumpdump_movement::StaticWorld;
 
 pub struct MapPlugin;
 
@@ -320,7 +320,7 @@ fn checker_image() -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pf_movement::{MoveInput, MovementState, MovementTuning, WallKind, step};
+    use pumpdump_movement::{MoveInput, MovementState, MovementTuning, WallKind, step};
 
     const DT: f32 = 1.0 / 60.0;
 

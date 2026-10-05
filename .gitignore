@@ -7,3 +7,6 @@ target/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Packaged builds (made by package.cmd)
+dist/

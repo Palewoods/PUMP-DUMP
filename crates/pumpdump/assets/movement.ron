@@ -1,8 +1,8 @@
-// Pilot movement tuning, read by pf-movement through the sandbox. Every value is
+// PUMP&DUMP movement tuning. Every value is
 // tuned by feel: change it, save, and try it.
 //
 // Units: game units (~1 inch), seconds, degrees.
-// The sandbox reloads this file when you save it, no restart needed.
+// The game reloads this file when you save it, no restart needed.
 (
     // Body
     capsule_radius: 16.0,

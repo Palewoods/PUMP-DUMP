@@ -1,7 +1,11 @@
-//! Movement sandbox: a greybox map to run, jump and climb around in,
-//! driven by `pf-movement`.
+// Release builds on Windows run as a normal app with no console window behind the
+// game. Debug builds keep the console for log messages.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+//! PUMP&DUMP: a greybox map to run, jump and climb around in,
+//! driven by `pumpdump-movement`.
 //!
-//! Run with `cargo run -p pf-sandbox`.
+//! Run with `cargo run -p pumpdump`.
 //!
 //! Bevy note: a Bevy app is a list of *plugins*, each adding *systems* (plain
 //! functions) that run on *schedules* like `Startup`, `Update` and `FixedUpdate`.
@@ -22,7 +26,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Pilotframe movement sandbox".into(),
+                title: "PUMP&DUMP".into(),
                 ..default()
             }),
             ..default()

@@ -2,7 +2,7 @@
 //! worlds. No Bevy, no game data.
 
 use glam::{Quat, Vec2, Vec3};
-use pf_movement::{MoveInput, MovementState, MovementTuning, StaticWorld, WallKind, step};
+use pumpdump_movement::{MoveInput, MovementState, MovementTuning, StaticWorld, WallKind, step};
 
 const DT: f32 = 1.0 / 60.0;
 const RADIUS: f32 = 16.0;

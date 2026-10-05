@@ -1,4 +1,4 @@
-//! The player: feeds actions into `pf_movement::step` every fixed tick, and places
+//! The player: feeds actions into `pumpdump_movement::step` every fixed tick, and places
 //! the first-person camera every rendered frame.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
@@ -6,7 +6,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, PrimaryWindow};
 use leafwing_input_manager::prelude::*;
-use pf_movement::{MoveInput, MovementState, WallKind, step};
+use pumpdump_movement::{MoveInput, MovementState, WallKind, step};
 
 use crate::input::{self, Action, look};
 use crate::map::{MapCollision, SPAWN};

@@ -1,4 +1,4 @@
-# Sub5
+# PUMP&DUMP
 
 A fast-paced first-person movement shooter, built in Rust with [Bevy](https://bevyengine.org/). Right now it's a movement sandbox: a greybox map for running, sliding, wall-running and chaining it all together at high speed. Shooting comes later.
 
@@ -11,7 +11,7 @@ A fast-paced first-person movement shooter, built in Rust with [Bevy](https://be
 - **Wall-hang.** Grab a wall mid-air and hold still.
 - **Slide.** Sprint and slide for a speed boost. Jump out of the slide and land still holding slide to boost again: speed keeps building up to a cap of 1600 units/s (about 40 m/s, over 3× sprint speed). Sliding downhill speeds you up.
 
-Every movement number lives in [`crates/pf-sandbox/assets/movement.ron`](crates/pf-sandbox/assets/movement.ron). Edit it while the game is running: it reloads when you save.
+Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pumpdump/assets/movement.ron). Edit it while the game is running: it reloads when you save.
 
 ## Controls
 
@@ -26,7 +26,11 @@ Every movement number lives in [`crates/pf-sandbox/assets/movement.ron`](crates/
 | Back to spawn | R | Back |
 | Free the mouse | Esc (click the window to capture it again) | |
 
-## Running it
+## Download
+
+Grab the latest Windows build from the [Releases page](https://github.com/Palewoods/PUMP-DUMP/releases): unzip it and double-click `PUMP&DUMP.exe`. Keep the `assets` folder next to the exe.
+
+## Building from source
 
 You need [Rust](https://www.rust-lang.org/tools/install) (latest stable).
 
@@ -36,15 +40,15 @@ You need [Rust](https://www.rust-lang.org/tools/install) (latest stable).
 Then, from the repository folder:
 
 ```
-cargo run -p pf-sandbox
+cargo run -p pumpdump
 ```
 
-The first build compiles Bevy and takes several minutes. Later builds are quick. On Windows you can also double-click `run-sandbox.cmd`.
+The first build compiles Bevy and takes several minutes. Later builds are quick. To make a shareable Windows build like the one on the Releases page, run `package.cmd`: it writes the game folder and a zip to `dist\`. On Windows you can also double-click `run.cmd`.
 
 ## Project layout
 
-- [`crates/pf-movement`](crates/pf-movement): all the movement rules. It doesn't depend on Bevy: each tick is a plain function of (state, input, world), so it runs the same in tests, in the game, and later on a server for multiplayer.
-- [`crates/pf-sandbox`](crates/pf-sandbox): the game itself. Bevy app, greybox map, first-person camera, keyboard/mouse and controller input.
+- [`crates/pumpdump-movement`](crates/pumpdump-movement): all the movement rules. It doesn't depend on Bevy: each tick is a plain function of (state, input, world), so it runs the same in tests, in the game, and later on a server for multiplayer.
+- [`crates/pumpdump`](crates/pumpdump): the game itself. Bevy app, greybox map, first-person camera, keyboard/mouse and controller input.
 
 Run the tests with:
 
@@ -64,4 +68,4 @@ cargo test --workspace
 
 ## License
 
-Sub5 is free software, released under the [GNU General Public License v3.0](LICENSE). You can use, study, change and share it. If you distribute a game or program built on this code, you must release its source under the same license.
+PUMP&DUMP is free software, released under the [GNU General Public License v3.0](LICENSE). You can use, study, change and share it. If you distribute a game or program built on this code, you must release its source under the same license.

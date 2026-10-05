@@ -1,6 +1,6 @@
 //! Every movement number lives here and is loaded from a `.ron` file, so tuning
 //! never needs a code change. There's deliberately no `Default`: values come from
-//! data (`crates/pf-sandbox/assets/movement.ron`).
+//! data (`crates/pumpdump/assets/movement.ron`).
 
 use serde::Deserialize;
 
