@@ -1,6 +1,6 @@
 # PUMP&DUMP
 
-A fast-paced first-person movement shooter, built in Rust with [Bevy](https://bevyengine.org/). Right now it's a movement sandbox: a greybox map for running, sliding, wall-running and chaining it all together at high speed. Shooting comes later.
+A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). Right now it's a sandbox: a test map for running, sliding, wall-running and blasting target dummies with a double-barrel shotgun, all at high speed.
 
 ## Movement
 
@@ -11,7 +11,17 @@ A fast-paced first-person movement shooter, built in Rust with [Bevy](https://be
 - **Wall-hang.** Grab a wall mid-air and hold still.
 - **Slide.** Sprint and slide for a speed boost. Jump out of the slide and land still holding slide to boost again: speed keeps building up to a cap of 1600 units/s (about 40 m/s, over 3× sprint speed). Sliding downhill speeds you up.
 
-Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pumpdump/assets/movement.ron). Edit it while the game is running: it reloads when you save.
+## Weapons
+
+- **Double-barrel shotgun.** One barrel per click, 12 pellets per shot. After both barrels it breaks open and reloads by itself, or press reload to top up. A close-range shot drops a target dummy.
+
+## Look
+
+The world renders at 270 pixels tall and is scaled up with hard pixel edges, a reduced colour palette and ordered dithering, over gritty low-resolution textures, dim warm light and thick distance fog.
+
+## Tuning
+
+Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pumpdump/assets/movement.ron). The shotgun's numbers are in [`crates/pumpdump/assets/shotgun.weapon.ron`](crates/pumpdump/assets/shotgun.weapon.ron). Edit either while the game is running: they reload when you save.
 
 ## Controls
 
@@ -19,11 +29,13 @@ Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pu
 |---|---|---|
 | Move | WASD | Left stick |
 | Look | Mouse | Right stick |
+| Fire | Left mouse | RT |
+| Reload | R | X |
 | Jump / double jump / wall jump | Space | A |
 | Sprint | Shift (hold) | L3 (click to toggle) |
 | Slide | Ctrl or C (hold) | B (hold) |
 | Wall-hang | Right mouse (hold) | LT (hold) |
-| Back to spawn | R | Back |
+| Back to spawn | Backspace | Back |
 | Free the mouse | Esc (click the window to capture it again) | |
 
 ## Download

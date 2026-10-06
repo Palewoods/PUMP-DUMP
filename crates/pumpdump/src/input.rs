@@ -38,6 +38,10 @@ pub enum Action {
     WallHang,
     /// Held: slide when moving fast on the ground.
     Slide,
+    /// Fire the weapon. One shot per press.
+    Fire,
+    /// Reload the weapon.
+    Reload,
     /// Back to the spawn point.
     Reset,
 }
@@ -57,7 +61,11 @@ pub fn default_bindings() -> InputMap<Action> {
         .with(Action::Slide, KeyCode::ControlLeft)
         .with(Action::Slide, KeyCode::KeyC)
         .with(Action::Slide, GamepadButton::East)
-        .with(Action::Reset, KeyCode::KeyR)
+        .with(Action::Fire, MouseButton::Left)
+        .with(Action::Fire, GamepadButton::RightTrigger2)
+        .with(Action::Reload, KeyCode::KeyR)
+        .with(Action::Reload, GamepadButton::West)
+        .with(Action::Reset, KeyCode::Backspace)
         .with(Action::Reset, GamepadButton::Select)
 }
 

@@ -1,8 +1,8 @@
 PUMP&DUMP
 =========
 
-A fast-paced first-person movement game. Run, slide, wall-run and chain it
-all together at high speed.
+A fast-paced first-person movement shooter. Run, slide, wall-run and blast
+target dummies with a double-barrel shotgun, all at high speed.
 
 Double-click PUMP&DUMP.exe to play. Keep the "assets" folder next to it.
 
@@ -12,11 +12,13 @@ CONTROLS
                      Keyboard / mouse        Controller
 Move                 WASD                    Left stick
 Look                 Mouse                   Right stick
+Fire                 Left mouse              RT
+Reload               R                       X
 Jump                 Space                   A
 Sprint               Shift (hold)            L3 (click)
 Slide                Ctrl or C (hold)        B (hold)
 Wall-hang            Right mouse (hold)      LT (hold)
-Back to spawn        R                       Back
+Back to spawn        Backspace               Back
 Free the mouse       Esc (click the window to capture it again)
 
 
@@ -32,9 +34,9 @@ TIPS
 
 TUNING
 ------
-Every movement number is in assets\movement.ron. Open it in a text editor
-while the game is running, change a value and save: the game picks it up
-straight away.
+Every movement number is in assets\movement.ron, and the shotgun's are in
+assets\shotgun.weapon.ron. Open one in a text editor while the game is
+running, change a value and save: the game picks it up straight away.
 
 
 SOURCE CODE AND LICENSE

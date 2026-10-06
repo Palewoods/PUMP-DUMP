@@ -6,11 +6,14 @@
 //! facing -Z.
 
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::RenderLayers;
 use bevy::image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use pumpdump_movement::StaticWorld;
+
+use crate::retro::VIEW_MODEL_LAYER;
 
 pub struct MapPlugin;
 
@@ -19,10 +22,11 @@ impl Plugin for MapPlugin {
         // Rust note: `insert_resource` stores one global value of a type. Systems
         // ask for it with `Res<MapCollision>`.
         app.insert_resource(MapCollision(collision(&layout())))
-            .insert_resource(ClearColor(Color::srgb(0.62, 0.72, 0.85)))
-            // Fill light so faces turned away from the sun aren't black.
+            .insert_resource(ClearColor(SKY))
+            // Dim, warm fill light so faces turned away from the sun aren't black.
             .insert_resource(GlobalAmbientLight {
-                brightness: 2500.0,
+                color: Color::srgb(0.95, 0.78, 0.65),
+                brightness: 650.0,
                 ..default()
             })
             .add_systems(Startup, spawn_map);
@@ -36,8 +40,13 @@ pub struct MapCollision(pub StaticWorld);
 /// Where the player starts and resets to.
 pub const SPAWN: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 
-/// Size of one checker square on every surface, units.
-const CHECKER: f32 = 64.0;
+/// Murky dusk. Also the distance fog's colour, so far things fade into it.
+pub const SKY: Color = Color::srgb(0.24, 0.17, 0.14);
+
+/// Every surface texture repeats every this many units.
+const TEXTURE_SPAN: f32 = 128.0;
+/// Surface textures are this many pixels square: chunky on purpose.
+const TEXELS: u32 = 32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Kind {
@@ -50,16 +59,40 @@ enum Kind {
 }
 
 impl Kind {
+    /// Tint over the (grey) texture: dusty, rusty, muted.
     fn color(self) -> Color {
         match self {
-            Kind::Floor => Color::srgb(0.55, 0.55, 0.58),
-            Kind::Wall => Color::srgb(0.38, 0.48, 0.68),
-            Kind::Ramp => Color::srgb(0.85, 0.55, 0.28),
-            Kind::Step => Color::srgb(0.42, 0.66, 0.42),
-            Kind::Crate => Color::srgb(0.72, 0.66, 0.50),
-            Kind::Marker => Color::srgb(0.92, 0.85, 0.20),
+            Kind::Floor => Color::srgb(0.40, 0.35, 0.30),
+            Kind::Wall => Color::srgb(0.55, 0.36, 0.28),
+            Kind::Ramp => Color::srgb(0.48, 0.33, 0.20),
+            Kind::Step => Color::srgb(0.42, 0.44, 0.36),
+            Kind::Crate => Color::srgb(0.60, 0.45, 0.28),
+            Kind::Marker => Color::srgb(0.80, 0.62, 0.22),
         }
     }
+
+    fn pattern(self) -> Pattern {
+        match self {
+            Kind::Floor => Pattern::Slabs,
+            Kind::Wall => Pattern::Bricks,
+            Kind::Ramp | Kind::Crate => Pattern::Planks,
+            Kind::Step => Pattern::Concrete,
+            Kind::Marker => Pattern::Plain,
+        }
+    }
+}
+
+/// The grey pattern each kind of surface is textured with.
+#[derive(Clone, Copy)]
+enum Pattern {
+    /// Big stone floor slabs.
+    Slabs,
+    Bricks,
+    Planks,
+    /// Blotchy, cracked concrete.
+    Concrete,
+    /// Just grain.
+    Plain,
 }
 
 struct Piece {
@@ -219,7 +252,6 @@ fn spawn_map(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let checker = images.add(checker_image());
     let mut material_for = std::collections::HashMap::new();
 
     for piece in layout() {
@@ -228,8 +260,10 @@ fn spawn_map(
             .or_insert_with(|| {
                 materials.add(StandardMaterial {
                     base_color: piece.kind.color(),
-                    base_color_texture: Some(checker.clone()),
-                    perceptual_roughness: 0.9,
+                    base_color_texture: Some(images.add(texture(piece.kind.pattern()))),
+                    // Flat and matte, no shine: an old-school look.
+                    perceptual_roughness: 1.0,
+                    reflectance: 0.05,
                     ..default()
                 })
             })
@@ -245,10 +279,13 @@ fn spawn_map(
 
     commands.spawn((
         DirectionalLight {
-            illuminance: 8_000.0,
+            illuminance: 4_200.0,
+            color: Color::srgb(1.0, 0.82, 0.62),
             shadow_maps_enabled: true,
             ..default()
         },
+        // Lights the world and the first-person gun alike.
+        RenderLayers::from_layers(&[0, VIEW_MODEL_LAYER]),
         Transform::from_xyz(0.0, 0.0, 0.0).looking_to(Vec3::new(-0.4, -1.0, -0.6), Vec3::Y),
         // Default shadow distances assume 1 unit = 1 metre; ours are inches.
         bevy::light::CascadeShadowConfigBuilder {
@@ -260,8 +297,8 @@ fn spawn_map(
     ));
 }
 
-/// A box mesh whose UVs are in world units, so the checker pattern is the same
-/// size on every surface and shows how fast you're moving.
+/// A box mesh whose UVs are in world units, so textures are the same size on
+/// every surface and show how fast you're moving.
 fn box_mesh(half: Vec3) -> Mesh {
     let mut mesh = Mesh::from(Cuboid::from_size(half * 2.0));
     let (
@@ -286,22 +323,26 @@ fn box_mesh(half: Vec3) -> Mesh {
             } else {
                 [p[0], p[1]]
             };
-            [uv[0] / (2.0 * CHECKER), uv[1] / (2.0 * CHECKER)]
+            [uv[0] / TEXTURE_SPAN, uv[1] / TEXTURE_SPAN]
         })
         .collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh
 }
 
-/// 2×2 light/dark checker, tiled. Multiplied by each material's colour.
-fn checker_image() -> Image {
-    const LIGHT: [u8; 4] = [255, 255, 255, 255];
-    const DARK: [u8; 4] = [214, 214, 214, 255];
-    let data = [LIGHT, DARK, DARK, LIGHT].concat();
+/// A small tiling grey texture for `pattern`, drawn pixel by pixel. Material
+/// colours tint it. Nearest-neighbour sampling keeps the pixels blocky.
+fn texture(pattern: Pattern) -> Image {
+    let data: Vec<u8> = (0..TEXELS * TEXELS)
+        .flat_map(|i| {
+            let v = (shade(pattern, i % TEXELS, i / TEXELS).clamp(0.0, 1.0) * 255.0) as u8;
+            [v, v, v, 255]
+        })
+        .collect();
     let mut image = Image::new(
         Extent3d {
-            width: 2,
-            height: 2,
+            width: TEXELS,
+            height: TEXELS,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -315,6 +356,54 @@ fn checker_image() -> Image {
         ..ImageSamplerDescriptor::nearest()
     });
     image
+}
+
+/// Brightness of texture pixel (x, y), 0..1. Every pattern tiles seamlessly
+/// because its blocks divide the texture size exactly.
+fn shade(pattern: Pattern, x: u32, y: u32) -> f32 {
+    let grain = noise(x, y, 1) - 0.5;
+    match pattern {
+        Pattern::Slabs => {
+            if x.is_multiple_of(16) || y.is_multiple_of(16) {
+                0.42 // the gaps between slabs
+            } else {
+                0.76 + 0.14 * noise(x / 16, y / 16, 2) + 0.12 * grain
+            }
+        }
+        Pattern::Bricks => {
+            // 16x8 bricks, every other row shifted by half a brick.
+            let row = y / 8;
+            let x = (x + if row.is_multiple_of(2) { 0 } else { 8 }) % TEXELS;
+            if x.is_multiple_of(16) || y.is_multiple_of(8) {
+                0.38 // mortar
+            } else {
+                0.72 + 0.18 * noise(x / 16, row, 3) + 0.12 * grain
+            }
+        }
+        Pattern::Planks => {
+            let row = y / 8;
+            if y.is_multiple_of(8) {
+                0.32 // seams
+            } else {
+                // Grain streaks run along the plank.
+                0.66 + 0.14 * noise(0, row, 5) + 0.12 * noise(x / 4, row, 4) + 0.06 * grain
+            }
+        }
+        Pattern::Concrete => {
+            let crack = if noise(x, y / 3, 7) > 0.96 { 0.25 } else { 0.0 };
+            0.72 + 0.2 * (noise(x / 2, y / 2, 6) - 0.5) + 0.1 * grain - crack
+        }
+        Pattern::Plain => 0.85 + 0.12 * grain,
+    }
+}
+
+/// Repeatable pseudo-random value in 0..1 for a grid cell.
+fn noise(x: u32, y: u32, seed: u32) -> f32 {
+    let mut h =
+        x.wrapping_mul(0x27D4_EB2D) ^ y.wrapping_mul(0x1656_67B1) ^ seed.wrapping_mul(0x9E37_79B9);
+    h = (h ^ (h >> 15)).wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 13;
+    (h & 0xFFFF) as f32 / 65535.0
 }
 
 #[cfg(test)]

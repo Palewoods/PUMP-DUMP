@@ -15,7 +15,11 @@ mod dev;
 mod input;
 mod map;
 mod player;
+mod retro;
+mod sfx;
+mod targets;
 mod tuning;
+mod weapon;
 
 use bevy::prelude::*;
 
@@ -24,19 +28,29 @@ const TICK_HZ: f64 = 60.0;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "PUMP&DUMP".into(),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "PUMP&DUMP".into(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                // Blocky, unfiltered textures everywhere, for the retro look.
+                .set(ImagePlugin::default_nearest()),
+        )
         .insert_resource(Time::<Fixed>::from_hz(TICK_HZ))
         .add_plugins((
+            // Before the player: its cameras draw into the retro screen.
+            retro::RetroPlugin,
             tuning::TuningPlugin,
             input::InputPlugin,
+            sfx::SfxPlugin,
             map::MapPlugin,
             player::PlayerPlugin,
+            targets::TargetsPlugin,
+            weapon::WeaponPlugin,
             dev::DevPlugin,
         ))
         .run();

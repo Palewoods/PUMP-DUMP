@@ -9,7 +9,8 @@ use leafwing_input_manager::prelude::*;
 use pumpdump_movement::{MoveInput, MovementState, WallKind, step};
 
 use crate::input::{self, Action, look};
-use crate::map::{MapCollision, SPAWN};
+use crate::map::{MapCollision, SKY, SPAWN};
+use crate::retro::RetroScreen;
 use crate::tuning::{Tuning, TuningAsset};
 
 pub struct PlayerPlugin;
@@ -20,8 +21,9 @@ impl Plugin for PlayerPlugin {
         // TICK_HZ in main.rs), however fast frames are drawn: movement behaves the
         // same at 30 or 240 fps. `Update` runs once per frame, for anything visual.
         // `.chain()` runs the systems in the listed order.
-        app.add_systems(Startup, (spawn_player, spawn_hud))
-            .add_systems(FixedUpdate, tick_movement)
+        app.init_resource::<PlayerStatus>()
+            .add_systems(Startup, (spawn_player, spawn_hud))
+            .add_systems(FixedUpdate, tick_movement.in_set(MovementTick))
             .add_systems(Update, (aim, place_camera, update_hud).chain());
     }
 }
@@ -42,6 +44,28 @@ const SLIDE_EYE_DROP: f32 = 28.0;
 /// How fast the camera eases towards step offsets, lean and FOV, per second.
 /// Higher is snappier.
 const VIEW_EASE_RATE: f32 = 12.0;
+/// Distance fog: clear up to here, units...
+const FOG_START: f32 = 500.0;
+/// ...and fully the sky colour from here.
+const FOG_END: f32 = 4500.0;
+
+/// The player's eye: the entity with the world camera, the input bindings and the
+/// movement state. Other plugins (the weapon) attach to it and read where it looks.
+#[derive(Component)]
+pub struct PlayerCamera;
+
+/// The fixed-tick step that moves the player. Order other per-tick systems
+/// against it (e.g. the weapon fires from where the player ended up).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MovementTick;
+
+/// What the rest of the game may want to know about the player's movement,
+/// updated every tick. Read-only for everyone but this module.
+#[derive(Resource, Default)]
+pub struct PlayerStatus {
+    pub velocity: Vec3,
+    pub on_ground: bool,
+}
 
 #[derive(Component)]
 struct Player {
@@ -70,8 +94,9 @@ struct ViewSmoothing {
     slide_drop: f32,
 }
 
-fn spawn_player(mut commands: Commands) {
+fn spawn_player(mut commands: Commands, screen: Res<RetroScreen>) {
     commands.spawn((
+        PlayerCamera,
         Player {
             state: MovementState::new(SPAWN),
             previous: SPAWN,
@@ -83,6 +108,18 @@ fn spawn_player(mut commands: Commands) {
         // leafwing adds the matching `ActionState<Action>` for us.
         input::default_bindings(),
         Camera3d::default(),
+        // Draw into the low-resolution retro image, not the window. No
+        // anti-aliasing: hard pixel edges are the look.
+        screen.target(),
+        Msaa::Off,
+        DistanceFog {
+            color: SKY,
+            falloff: FogFalloff::Linear {
+                start: FOG_START,
+                end: FOG_END,
+            },
+            ..default()
+        },
         // Default near/far planes assume metres; our units are inches.
         Projection::Perspective(PerspectiveProjection {
             fov: FOV_DEGREES.to_radians(),
@@ -123,6 +160,7 @@ fn tick_movement(
     tuning: Res<Tuning>,
     tunings: Res<Assets<TuningAsset>>,
     map: Res<MapCollision>,
+    mut status: ResMut<PlayerStatus>,
     player: Single<(&mut Player, &ActionState<Action>)>,
 ) {
     // `let ... else` returns early if movement.ron hasn't finished loading.
@@ -173,6 +211,8 @@ fn tick_movement(
         player.previous = SPAWN;
         player.view = ViewSmoothing::default();
     }
+    status.velocity = player.state.velocity;
+    status.on_ground = player.state.on_ground;
 }
 
 fn place_camera(
@@ -258,8 +298,9 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move   mouse look   Space jump   Shift sprint   Ctrl/C slide   right mouse wall-hang   R reset   Esc free mouse\n\
-                        Controller: sticks   A jump   L3 sprint   B slide   LT wall-hang   Back reset\n\
+const CONTROLS: &str = "WASD move   mouse look   left mouse fire   R reload   Space jump   Shift sprint   Ctrl/C slide   right mouse wall-hang\n\
+                        Backspace back to spawn   Esc free mouse\n\
+                        Controller: sticks   RT fire   X reload   A jump   L3 sprint   B slide   LT wall-hang   Back to spawn\n\
                         Jump again in the air to double jump. Jump at a wall while moving along it to wall-run.\n\
                         Slide while sprinting for a boost. Jump out, land still holding slide, repeat: speed keeps building.\n\
                         On a wall: jump looking along it to hop and keep running, or looking away to kick off. 3 per airtime.\n\

@@ -11,10 +11,10 @@ set "ZIP=dist\PUMP-DUMP-windows.zip"
 cargo build --release -p pumpdump || exit /b 1
 
 if exist "%GAME%" rmdir /s /q "%GAME%"
-mkdir "%GAME%\assets"
+mkdir "%GAME%"
 copy /y target\release\pumpdump.exe "%GAME%\PUMP&DUMP.exe" >nul || exit /b 1
-rem The game reads its tuning from assets\ next to the exe.
-copy /y crates\pumpdump\assets\movement.ron "%GAME%\assets\" >nul || exit /b 1
+rem The game reads its tuning, weapon settings and shaders from assets\ next to the exe.
+xcopy /e /i /q /y crates\pumpdump\assets "%GAME%\assets" >nul || exit /b 1
 copy /y LICENSE "%GAME%\LICENSE.txt" >nul || exit /b 1
 copy /y packaging\README.txt "%GAME%\README.txt" >nul || exit /b 1
 
