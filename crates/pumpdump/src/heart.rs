@@ -6,7 +6,8 @@
 //! At the start of each run you pick how fast it drains (its heart rate, in
 //! `assets/heart.ron`). Faster means more squeezing, but bigger boosts: damage,
 //! accuracy, health, speed, reload speed. The fastest rate also gets a perk.
-//! See `run.rs` for picking.
+//! As the heart runs low the boosts fade (all but health); squeezing brings
+//! them back. See `run.rs` for picking.
 
 use bevy::asset::{AssetLoader, LoadContext, io::Reader};
 use bevy::light::NotShadowCaster;
@@ -56,6 +57,9 @@ pub struct HeartTuning {
     pub flatline_damage: f32,
     /// Below this much blood, the game warns you.
     pub warn_below: f32,
+    /// At or above this much blood the boosts are at full power; below it they
+    /// fade, to nothing on an empty heart.
+    pub full_power_above: f32,
     /// The heart rates to choose from, slowest first.
     pub tiers: Vec<Tier>,
     pub bloodlust_heal: f32,
@@ -171,10 +175,13 @@ pub struct Run {
     pub tier: usize,
     pub perk: Option<Perk>,
     pub second_heart_used: bool,
+    /// The heart rate's boosts at full power. `Boosts` (the resource) is
+    /// these faded by how much blood is left.
+    pub boosts: Boosts,
 }
 
-/// What the run's heart rate does for you. Weapons, movement and health read
-/// this.
+/// What the run's heart rate does for you right now. Weapons, movement and
+/// health read this. The heart keeps it up to date: see `Boosts::faded`.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct Boosts {
     pub damage: f32,
@@ -206,6 +213,21 @@ impl Boosts {
             reload: tier.reload,
             speed: tier.speed,
             max_health: tier.health,
+        }
+    }
+
+    /// These boosts at `power` (0 none, 1 full): every multiplier slides
+    /// towards 1. Maximum health stays put, so a faltering heart never takes
+    /// health away on top of the flatline bleed.
+    pub fn faded(&self, power: f32) -> Self {
+        let p = power.clamp(0.0, 1.0);
+        let fade = |x: f32| 1.0 + (x - 1.0) * p;
+        Self {
+            damage: fade(self.damage),
+            spread: fade(self.spread),
+            reload: fade(self.reload),
+            speed: fade(self.speed),
+            max_health: self.max_health,
         }
     }
 
@@ -272,6 +294,12 @@ impl Heart {
     pub fn flatlined(&self) -> bool {
         self.blood <= 0.0
     }
+
+    /// How much of the heart rate's boosts you're getting: full at or above
+    /// `full_above` blood, fading to none on an empty heart.
+    pub fn power(&self, full_above: f32) -> f32 {
+        (self.blood / full_above.max(1e-3)).clamp(0.0, 1.0)
+    }
 }
 
 /// A Pulse shockwave: a ring spreading out along the ground.
@@ -316,6 +344,7 @@ fn tick_heart(
     player: Res<PlayerStatus>,
     targets: Query<(Entity, &Transform, &Hitbox)>,
     mut heart: ResMut<Heart>,
+    mut boosts: ResMut<Boosts>,
     mut health: ResMut<PlayerHealth>,
     mut arsenal: ResMut<Arsenal>,
     mut hits: MessageWriter<Damage>,
@@ -372,7 +401,9 @@ fn tick_heart(
             }
         }
     }
-    // Flatlining: a slow, steady bleed, with no healing while it lasts.
+    // A heart running low saps your boosts; squeezing brings them back.
+    *boosts = run.boosts.faded(heart.power(tuning.full_power_above));
+    // Flatlining: a steady bleed, with no healing while it lasts.
     if heart.flatlined() {
         health.bleed(tuning.flatline_damage * dt);
     }
@@ -587,7 +618,13 @@ fn update_hud(
     } else {
         "  [Q] pull out"
     };
-    label.0 = format!("HEART  {tier}  {:.0} BPM{perk}{hand}", heart.bpm);
+    let power = heart.power(tuning.full_power_above);
+    let fading = if power < 1.0 {
+        format!("  POWER {:.0}%", power * 100.0)
+    } else {
+        String::new()
+    };
+    label.0 = format!("HEART  {tier}  {:.0} BPM{perk}{fading}{hand}", heart.bpm);
     fill_node.width = percent(heart.blood * 100.0);
 
     // The bar throbs with the heart rate.
@@ -659,6 +696,35 @@ mod tests {
         // A full heart gains nothing from another squeeze.
         assert!(!heart.squeeze(0.25));
         assert_eq!(heart.since_squeeze, 0.0);
+    }
+
+    #[test]
+    fn boosts_fade_as_the_heart_empties_and_come_back_with_a_squeeze() {
+        let t = tuning();
+        let full = Boosts::from_tier(t.tiers.last().unwrap());
+        let mut heart = Heart::default();
+        // A full heart, and anything above the threshold: full power.
+        assert_eq!(heart.power(t.full_power_above), 1.0);
+        assert_eq!(full.faded(heart.power(t.full_power_above)), full);
+        // Halfway below it: halfway back to normal.
+        heart.blood = t.full_power_above / 2.0;
+        let half = full.faded(heart.power(t.full_power_above));
+        assert!((half.damage - (1.0 + (full.damage - 1.0) / 2.0)).abs() < 1e-5);
+        assert!(half.reload > full.reload && half.reload < 1.0);
+        assert!(half.spread > full.spread && half.speed < full.speed);
+        // Empty: no boosts at all, but maximum health stays.
+        heart.blood = 0.0;
+        let none = full.faded(heart.power(t.full_power_above));
+        assert_eq!(
+            none,
+            Boosts {
+                max_health: full.max_health,
+                ..default()
+            }
+        );
+        // Squeezing puts power straight back.
+        heart.squeeze(t.squeeze);
+        assert!(heart.power(t.full_power_above) > 0.0);
     }
 
     #[test]

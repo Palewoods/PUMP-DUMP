@@ -187,12 +187,13 @@ mod tests {
     #[test]
     fn bleeding_drains_steadily_and_healing_never_cancels_it() {
         let mut health = PlayerHealth::default();
-        // Ten seconds of flatlining at 4 a second, well past the regen delay.
-        for _ in 0..600 {
-            health.bleed(4.0 * DT);
+        // Eight seconds of flatlining at 10 a second, well past the regen
+        // delay.
+        for _ in 0..480 {
+            health.bleed(10.0 * DT);
             tick(&mut health);
         }
-        assert!((health.current - 60.0).abs() < 0.1, "{}", health.current);
+        assert!((health.current - 20.0).abs() < 0.1, "{}", health.current);
     }
 
     #[test]

@@ -47,8 +47,9 @@ WEAPONS
 TIPS
 ----
 - Keep an eye on the heart bar at the bottom. Before it runs dry, press Q,
-  squeeze a few times, and press Q again. If it empties you flatline and
-  lose health until you beat it again.
+  squeeze a few times, and press Q again. Below half full your boosts
+  start to fade; if it empties you flatline and lose health fast until
+  you beat it again.
 - Hunters' rifle muzzles glow brighter just before they fire. Their glowing
   shots are slow enough to dodge, and dashing makes you untouchable.
   You heal after a few seconds out of the line of fire.

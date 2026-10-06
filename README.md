@@ -8,7 +8,7 @@ Right now it's one test map with a squad of hunters and a few practice dummies.
 
 ## Your heart
 
-At the start of every run you pick a heart rate. Your heart holds a measure of blood that drains away; press **Q** to pull it out (your weapons go away) and **fire** to squeeze it: each squeeze is one beat, a quarter of a full heart. Press Q again to get your weapon back. Let it run dry and you **flatline**: the screen goes dark and you lose health until you beat it again.
+At the start of every run you pick a heart rate. Your heart holds a measure of blood that drains away; press **Q** to pull it out (your weapons go away) and **fire** to squeeze it: each squeeze is one beat, a quarter of a full heart. Press Q again to get your weapon back. Once it's below half full, your heart rate's boosts start to fade (all but health), down to nothing on an empty heart; squeezing brings them straight back. Let it run dry and you **flatline**: the screen goes dark and you lose 10 health a second, with no healing, until you beat it again.
 
 | Heart rate | BPM | A full heart lasts | Damage | Accuracy | Health | Speed | Reload |
 |---|---|---|---|---|---|---|---|

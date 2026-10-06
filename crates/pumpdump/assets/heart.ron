@@ -7,11 +7,15 @@
 (
     // One squeeze refills this much of the heart (1.0 = full).
     squeeze: 0.25,
-    // Health lost per second while the heart is empty (flatlining). A slow,
-    // steady bleed: you don't heal while it's going on.
-    flatline_damage: 4.0,
+    // Health lost per second while the heart is empty (flatlining). You don't
+    // heal while it's going on.
+    flatline_damage: 10.0,
     // Below this much blood, the game warns you to beat your heart.
     warn_below: 0.3,
+    // With at least this much blood your heart rate's boosts are at full
+    // power. Below it they fade (all but health), to nothing on an empty
+    // heart. Squeezing brings them back.
+    full_power_above: 0.5,
 
     // The heart rates to choose from, slowest first. The last one also gets a
     // perk. `lasts` is how long a full heart keeps you going, in seconds.

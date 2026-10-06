@@ -379,8 +379,9 @@ fn apply_pick(
         tier: menu.tier,
         perk,
         second_heart_used: false,
+        boosts: Boosts::from_tier(tier),
     };
-    *boosts = Boosts::from_tier(tier);
+    *boosts = run.boosts;
     *heart = Heart {
         bpm: tier.bpm as f32,
         ..default()
