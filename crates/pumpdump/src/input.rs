@@ -37,8 +37,19 @@ pub enum Action {
     WallHang,
     /// Held: slide on the ground. Pressed in the air: ground slam.
     Slide,
-    /// Fire the weapon. One shot per press.
+    /// Fire the weapon: one shot per press, or held for automatic weapons.
     Fire,
+    /// A quick machete slash, whatever weapon is out.
+    Melee,
+    /// Pick a weapon by slot (1 machete, 2 revolver, 3 shotgun, 4 tommy gun,
+    /// 5 rocket launcher), or step through them.
+    Weapon1,
+    Weapon2,
+    Weapon3,
+    Weapon4,
+    Weapon5,
+    NextWeapon,
+    PreviousWeapon,
     /// Reload the weapon.
     Reload,
     /// Switch between first- and third-person view.
@@ -67,6 +78,16 @@ pub fn default_bindings() -> InputMap<Action> {
         .with(Action::Slide, GamepadButton::East)
         .with(Action::Fire, MouseButton::Left)
         .with(Action::Fire, GamepadButton::RightTrigger2)
+        .with(Action::Melee, KeyCode::KeyF)
+        .with(Action::Melee, GamepadButton::RightThumb)
+        .with(Action::Weapon1, KeyCode::Digit1)
+        .with(Action::Weapon2, KeyCode::Digit2)
+        .with(Action::Weapon3, KeyCode::Digit3)
+        .with(Action::Weapon4, KeyCode::Digit4)
+        .with(Action::Weapon5, KeyCode::Digit5)
+        .with(Action::NextWeapon, MouseScrollDirection::DOWN)
+        .with(Action::NextWeapon, GamepadButton::North)
+        .with(Action::PreviousWeapon, MouseScrollDirection::UP)
         .with(Action::Reload, KeyCode::KeyR)
         .with(Action::Reload, GamepadButton::West)
         .with(Action::ToggleView, KeyCode::KeyV)

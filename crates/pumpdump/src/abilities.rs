@@ -3,8 +3,10 @@
 //! and slamming. The abilities themselves live in `pumpdump-movement`; this only
 //! shows them.
 
+use bevy::asset::RenderAssetUsages;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::player::{PlayerCamera, PlayerStatus};
 use crate::sfx::{self, Sounds};
@@ -13,8 +15,11 @@ pub struct AbilitiesPlugin;
 
 impl Plugin for AbilitiesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (spawn_rope, spawn_meter))
-            .add_systems(Update, (draw_rope, update_meter, play_sounds));
+        app.add_systems(Startup, (spawn_rope, spawn_meter, spawn_streaks))
+            .add_systems(
+                Update,
+                (draw_rope, update_meter, play_sounds, flash_streaks),
+            );
     }
 }
 
@@ -167,4 +172,77 @@ fn play_sounds(
         }
     }
     *before = now;
+}
+
+/// Speed streaks over the screen on each dash.
+#[derive(Component)]
+struct DashStreaks;
+
+/// Size of the streak texture, pixels: low, to match the game's chunky pixels.
+const STREAK_SIZE: UVec2 = UVec2::new(192, 108);
+/// How fast the streaks fade after a dash, per second.
+const STREAK_FADE: f32 = 6.0;
+
+fn spawn_streaks(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    commands.spawn((
+        DashStreaks,
+        ImageNode {
+            image: images.add(streak_image()),
+            color: Color::NONE,
+            ..default()
+        },
+        Node {
+            position_type: PositionType::Absolute,
+            width: percent(100),
+            height: percent(100),
+            ..default()
+        },
+    ));
+}
+
+/// Pale lines radiating from the middle of the screen, clear in the centre and
+/// strongest at the edges.
+fn streak_image() -> Image {
+    let (w, h) = (STREAK_SIZE.x, STREAK_SIZE.y);
+    let mut data = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            // Position from the centre, squashed so the clear area is round.
+            let dx = (x as f32 + 0.5) / w as f32 * 2.0 - 1.0;
+            let dy = ((y as f32 + 0.5) / h as f32 * 2.0 - 1.0) * h as f32 / w as f32;
+            let radius = (dx * dx + dy * dy).sqrt();
+            // 90 thin spokes; about one in three is a streak.
+            let spoke = ((dy.atan2(dx) / std::f32::consts::TAU + 0.5) * 90.0) as u32;
+            let lit = spoke.wrapping_mul(2_654_435_761) % 7 < 2;
+            let fade = ((radius - 0.35) / 0.5).clamp(0.0, 1.0);
+            let alpha = if lit { (fade * 200.0) as u8 } else { 0 };
+            data.extend_from_slice(&[225, 235, 255, alpha]);
+        }
+    }
+    Image::new(
+        Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+}
+
+/// Full strength while dashing, fading out after.
+fn flash_streaks(
+    time: Res<Time>,
+    status: Res<PlayerStatus>,
+    mut strength: Local<f32>,
+    mut streaks: Single<&mut ImageNode, With<DashStreaks>>,
+) {
+    if status.dashing {
+        *strength = 1.0;
+    } else {
+        *strength *= (-STREAK_FADE * time.delta_secs()).exp();
+    }
+    streaks.color = Color::srgba(1.0, 1.0, 1.0, *strength * 0.8);
 }

@@ -1,0 +1,62 @@
+// PUMP&DUMP weapons. Like movement.ron, the game reloads this file when you
+// save it.
+//
+// Units: game units (~1 inch), seconds, degrees. Hunters have 120 health.
+(
+    // 1: a wide slash. F swings it whatever weapon is out.
+    machete: (
+        damage: 70.0,
+        reach: 130.0,
+        arc_deg: 80.0,
+        interval: 0.42,
+    ),
+
+    // 2: six shots, dead accurate, two to drop a hunter.
+    revolver: (
+        magazine: 6,
+        automatic: false,
+        interval: 0.3,
+        reload_time: 1.4,
+        pellets: 1,
+        spread_deg: 0.0,
+        damage: 65.0,
+        range: 9000.0,
+    ),
+
+    // 3: the double barrel. One barrel per click, 12 pellets per shot.
+    shotgun: (
+        magazine: 2,
+        automatic: false,
+        interval: 0.22,
+        reload_time: 1.15,
+        pellets: 12,
+        spread_deg: 5.5,
+        damage: 12.0,
+        range: 6000.0,
+    ),
+
+    // 4: hold the trigger. A 50-round drum, a bit of spray.
+    tommy_gun: (
+        magazine: 50,
+        automatic: true,
+        interval: 0.075,
+        reload_time: 2.0,
+        pellets: 1,
+        spread_deg: 2.2,
+        damage: 12.0,
+        range: 7000.0,
+    ),
+
+    // 5: rockets you can watch fly. The blast hurts everything near it and
+    // throws you around (but never hurts you): aim at your feet and jump.
+    launcher: (
+        magazine: 4,
+        interval: 0.85,
+        reload_time: 2.2,
+        rocket_speed: 2200.0,
+        direct_damage: 100.0,
+        splash_damage: 90.0,
+        splash_radius: 260.0,
+        knockback: 1500.0,
+    ),
+)

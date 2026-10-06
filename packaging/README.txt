@@ -2,8 +2,9 @@ PUMP&DUMP
 =========
 
 A fast-paced first-person movement shooter. You're a zombie gunslinger in a
-trenchcoat and fedora. Dash, slide, slam, wall jump and grapple around, and
-blast the red-eyed zombies hunting you with a double-barrel shotgun.
+trenchcoat and fedora, hunted by humans with rifles. Dash, slide, slam, wall
+jump, grapple and rocket jump around, and take them apart with a machete,
+revolver, shotgun, tommy gun and rocket launcher.
 
 Double-click PUMP&DUMP.exe to play. Keep the "assets" folder next to it.
 
@@ -14,6 +15,8 @@ CONTROLS
 Move                 WASD                    Left stick
 Look                 Mouse                   Right stick
 Fire                 Left mouse              RT
+Machete slash        F                       R3
+Pick weapon          1-5, mouse wheel        Y (next)
 Reload               R                       X
 Jump                 Space                   A
 Dash                 Shift                   RB
@@ -25,13 +28,24 @@ Back to spawn        Backspace               Back
 Free the mouse       Esc (click the window to capture it again)
 
 
+WEAPONS
+-------
+1 Machete           A wide slash. F swings it whatever is out.
+2 Revolver          Six shots, accurate, two to drop a hunter.
+3 Shotgun           Double barrel, one barrel per click.
+4 Tommy gun         Hold the trigger. 50-round drum.
+5 Rocket launcher   Big blast that throws you around but never hurts you:
+                    fire at your feet and jump to rocket jump.
+
+
 TIPS
 ----
-- Enemies' eyes flare white just before they fire. Their glowing shots are
-  slow enough to dodge. You heal after a few seconds out of the line of fire.
+- Hunters' rifle muzzles glow brighter just before they fire. Their glowing
+  shots are slow enough to dodge, and dashing makes you untouchable.
+  You heal after a few seconds out of the line of fire.
 - There's no sprint: you're always fast.
-- Dash costs one of 3 charges (bottom left); they refill. Jump during a
-  ground dash for a long dash jump.
+- Dash costs one of 3 charges (bottom left); they refill, and every kill
+  gives one back. Jump during a ground dash for a long dash jump.
 - Slide works from a standstill and never slows down on the flat. Jump out,
   land still holding slide, and repeat: your speed keeps building.
 - Press slide in the air to ground-slam. Jump right as you land to bounce
@@ -45,9 +59,9 @@ TIPS
 
 TUNING
 ------
-Every movement number is in assets\movement.ron, and the shotgun's are in
-assets\shotgun.weapon.ron. Open one in a text editor while the game is
-running, change a value and save: the game picks it up straight away.
+Every movement number is in assets\movement.ron, and every weapon number in
+assets\weapons.ron. Open one in a text editor while the game is running,
+change a value and save: the game picks it up straight away.
 
 
 SOURCE CODE AND LICENSE

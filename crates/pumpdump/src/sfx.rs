@@ -43,6 +43,17 @@ pub struct Sounds {
     pub zap: Handle<Sfx>,
     /// The player getting hit.
     pub hurt: Handle<Sfx>,
+    pub revolver: Handle<Sfx>,
+    /// One tommy gun round: short, so a burst rattles.
+    pub tommy: Handle<Sfx>,
+    /// A rocket leaving the launcher.
+    pub launch: Handle<Sfx>,
+    /// A rocket exploding.
+    pub boom: Handle<Sfx>,
+    /// The machete cutting the air...
+    pub swish: Handle<Sfx>,
+    /// ...and into something.
+    pub chop: Handle<Sfx>,
 }
 
 /// Play a sound once.
@@ -121,6 +132,12 @@ fn make_sounds(mut commands: Commands, mut sfx: ResMut<Assets<Sfx>>) {
         thud: add(thud()),
         zap: add(zap()),
         hurt: add(hurt()),
+        revolver: add(gunshot(0.6, 0.9, 0.3, 110.0, 9.0, 0x0A11_CE01)),
+        tommy: add(gunshot(0.18, 0.7, 0.25, 140.0, 26.0, 0x70AA_5EED)),
+        launch: add(whoosh()),
+        boom: add(gunshot(1.4, 0.3, 0.35, 45.0, 3.5, 0x00B0_0000)),
+        swish: add(whoosh()),
+        chop: add(click(0.1, 300.0, 0.8, 23)),
     });
 }
 
@@ -216,6 +233,25 @@ fn hurt() -> Vec<f32> {
         .collect()
 }
 
+/// A gunshot: a sharp crack over a muffled body and a falling thump.
+/// `crack` and `body` set how much of each; `thump` is the thump's starting
+/// pitch (Hz); `decay` how fast it all dies away (higher is shorter).
+fn gunshot(seconds: f32, crack: f32, body: f32, thump: f32, decay: f32, seed: u32) -> Vec<f32> {
+    let mut noise = Noise(seed | 1);
+    let mut muffled = 0.0;
+    samples(seconds)
+        .map(|t| {
+            muffled += 0.2 * (noise.next() - muffled);
+            let attack = (t / 0.002).min(1.0);
+            let snap = noise.next() * (-t * 70.0).exp() * crack;
+            let rumble = muffled * 2.4 * body * (-t * decay).exp();
+            let boom =
+                (TAU * (thump * (1.0 - 0.5 * t / seconds)) * t).sin() * (-t * decay * 1.3).exp();
+            ((snap + rumble + boom * 0.8) * attack * 0.75).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
 /// A short mechanical click: a noise tick plus a quickly fading ring at `pitch`.
 fn click(seconds: f32, pitch: f32, volume: f32, seed: u32) -> Vec<f32> {
     let mut noise = Noise(0x1234_5678 ^ seed.wrapping_mul(0x0101_0101));
@@ -241,6 +277,8 @@ mod tests {
             thud(),
             zap(),
             hurt(),
+            gunshot(0.6, 0.9, 0.3, 110.0, 9.0, 1),
+            gunshot(1.4, 0.3, 0.35, 45.0, 3.5, 2),
         ] {
             assert!(sound.iter().all(|s| s.abs() <= 1.0));
             let tail = &sound[sound.len() * 9 / 10..];

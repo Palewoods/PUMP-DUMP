@@ -8,7 +8,7 @@ use bevy::window::{CursorOptions, PrimaryWindow};
 use leafwing_input_manager::prelude::*;
 use pumpdump_movement::{CollisionWorld, Grapple, MoveInput, MovementState, WallKind, step};
 
-use crate::character::{self, Gait, Style, ZombieKit};
+use crate::character::{self, CharacterKit, Gait, Style};
 use crate::input::{self, Action, look};
 use crate::map::{MapCollision, SKY, SPAWN};
 use crate::retro::RetroScreen;
@@ -25,6 +25,8 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<PlayerStatus>()
             .init_resource::<ThirdPerson>()
             .add_message::<RespawnPlayer>()
+            .add_message::<RefillDash>()
+            .add_message::<Knockback>()
             .add_systems(Startup, (spawn_player, spawn_body, spawn_hud))
             .add_systems(FixedUpdate, tick_movement.in_set(MovementTick))
             .add_systems(Update, (aim, place_camera, place_body, update_hud).chain());
@@ -42,6 +44,10 @@ const WALL_RUN_ROLL_DEGREES: f32 = 8.0;
 /// Extra field of view at the speed cap, degrees. Helps sell the speed. Grows
 /// quickly at first (about half of it by wall-run speed), then more slowly.
 const SPEED_FOV_DEGREES: f32 = 14.0;
+/// Extra field of view at the moment of a dash, degrees, and how fast it fades
+/// (per second).
+const DASH_FOV_DEGREES: f32 = 12.0;
+const DASH_KICK_FADE: f32 = 7.0;
 /// How far the camera drops while sliding, units.
 const SLIDE_EYE_DROP: f32 = 28.0;
 /// How fast the camera eases towards step offsets, lean and FOV, per second.
@@ -70,6 +76,14 @@ pub struct MovementTick;
 /// Send this to put the player back at the spawn (on death, say).
 #[derive(Message, Clone, Copy)]
 pub struct RespawnPlayer;
+
+/// Give the player back a dash charge (on a kill, say).
+#[derive(Message, Clone, Copy)]
+pub struct RefillDash;
+
+/// Shove the player: added straight to their velocity (a rocket blast, say).
+#[derive(Message, Clone, Copy)]
+pub struct Knockback(pub Vec3);
 
 /// Viewing from behind (true) or through the eyes (false). V toggles it.
 #[derive(Resource, Default)]
@@ -120,6 +134,8 @@ struct ViewSmoothing {
     fov_bonus: f32,
     /// How far the camera is currently lowered for a slide, units.
     slide_drop: f32,
+    /// Dash kick, 1 the moment a dash starts, fading to 0: widens the view.
+    dash_kick: f32,
 }
 
 fn spawn_player(mut commands: Commands, screen: Res<RetroScreen>) {
@@ -160,7 +176,7 @@ fn spawn_player(mut commands: Commands, screen: Res<RetroScreen>) {
 
 fn spawn_body(
     mut commands: Commands,
-    kit: Res<ZombieKit>,
+    kit: Res<CharacterKit>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let body = character::spawn_zombie(
@@ -205,6 +221,7 @@ fn aim(
 }
 
 /// One simulation tick.
+#[allow(clippy::too_many_arguments)]
 fn tick_movement(
     time: Res<Time>,
     tuning: Res<Tuning>,
@@ -212,6 +229,8 @@ fn tick_movement(
     map: Res<MapCollision>,
     mut status: ResMut<PlayerStatus>,
     mut respawns: MessageReader<RespawnPlayer>,
+    mut refills: MessageReader<RefillDash>,
+    mut knockbacks: MessageReader<Knockback>,
     player: Single<(&mut Player, &ActionState<Action>)>,
 ) {
     // `let ... else` returns early if movement.ron hasn't finished loading.
@@ -239,6 +258,14 @@ fn tick_movement(
 
     // `time` is the fixed clock here, so this is exactly one tick.
     let dt = time.delta_secs();
+    // Outside forces first: blasts shove you, kills hand back dash charges.
+    for Knockback(push) in knockbacks.read() {
+        player.state.velocity += *push;
+    }
+    for _ in refills.read() {
+        let stamina = player.state.stamina.min(tuning.dash_charges);
+        player.state.stamina = (stamina + 1.0).min(tuning.dash_charges);
+    }
     let next = step(&player.state, &input, tuning, &map.0, dt);
     let was_on_ground = player.state.on_ground;
     player.previous = player.state.position;
@@ -314,6 +341,12 @@ fn place_camera(
         .clamp(0.0, 1.0)
         .sqrt();
     view.fov_bonus += (fast * SPEED_FOV_DEGREES - view.fov_bonus) * ease;
+    // A dash punches the view wide at once, then lets it settle.
+    if state.dash.is_some() {
+        view.dash_kick = 1.0;
+    } else {
+        view.dash_kick *= (-DASH_KICK_FADE * time.delta_secs()).exp();
+    }
     let drop = if state.sliding { SLIDE_EYE_DROP } else { 0.0 };
     view.slide_drop += (drop - view.slide_drop) * ease;
 
@@ -335,7 +368,8 @@ fn place_camera(
         transform.translation += back * room;
     }
     if let Projection::Perspective(perspective) = projection.as_mut() {
-        perspective.fov = (FOV_DEGREES + view.fov_bonus).to_radians();
+        perspective.fov =
+            (FOV_DEGREES + view.fov_bonus + view.dash_kick * DASH_FOV_DEGREES).to_radians();
     }
 }
 
@@ -392,13 +426,13 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move   mouse look   left mouse fire   R reload   Space jump   Shift dash   Ctrl/C slide (in the air: slam)\n\
-                        E grapple (hold)   right mouse wall-hang   V third person   Backspace back to spawn   Esc free mouse\n\
-                        Controller: sticks   RT fire   X reload   A jump   RB dash   B slide/slam   LB grapple   LT wall-hang   Back to spawn\n\
-                        Dash costs a charge (3, they refill). Jump during a ground dash for a long dash jump.\n\
+const CONTROLS: &str = "WASD move   mouse look   left mouse fire   1-5 / wheel weapons   F machete   R reload   Space jump   Shift dash\n\
+                        Ctrl/C slide (in the air: slam)   E grapple (hold)   right mouse wall-hang   V third person   Backspace back to spawn   Esc free mouse\n\
+                        Controller: sticks   RT fire   Y next weapon   R3 machete   X reload   A jump   RB dash   B slide/slam   LB grapple   LT wall-hang\n\
+                        Dash: untouchable while it lasts, 3 charges, every kill gives one back. Jump during a ground dash for a dash jump.\n\
                         Slide any time on the ground; slide-hop to build speed. Slam, then jump as you land to bounce high.\n\
-                        Touch any wall in the air and jump to wall jump, as often as you like. Run along walls for up to 12 s.\n\
-                        Edit assets/movement.ron while playing; it reloads on save.";
+                        Touch any wall in the air and jump to wall jump, as often as you like. Rocket at your feet + jump = rocket jump.\n\
+                        Edit assets/movement.ron and assets/weapons.ron while playing; they reload on save.";
 
 fn update_hud(
     player: Single<&Player>,

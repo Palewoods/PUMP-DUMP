@@ -960,7 +960,7 @@ fn sliding_downhill_speeds_you_up() {
     assert!(speed(&state) > landed + 40.0, "{landed} -> {state:?}");
 }
 
-// ---- the ULTRAKILL-style kit: dash, slam, grapple, endless walls ----
+// ---- the fast kit: dash, slam, grapple, endless walls ----
 
 /// Run `ticks` ticks with a custom tuning.
 fn run_with(

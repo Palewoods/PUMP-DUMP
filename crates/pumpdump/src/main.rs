@@ -20,9 +20,11 @@ mod input;
 mod map;
 mod player;
 mod retro;
+mod rockets;
 mod sfx;
 mod targets;
 mod tuning;
+mod viewmodel;
 mod weapon;
 
 use bevy::prelude::*;
@@ -56,6 +58,8 @@ fn main() {
             player::PlayerPlugin,
             targets::TargetsPlugin,
             weapon::WeaponPlugin,
+            viewmodel::ViewModelPlugin,
+            rockets::RocketsPlugin,
             abilities::AbilitiesPlugin,
             health::HealthPlugin,
             enemies::EnemiesPlugin,

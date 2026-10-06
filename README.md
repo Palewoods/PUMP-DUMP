@@ -1,33 +1,44 @@
 # PUMP&DUMP
 
-A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). Movement takes its cue from ULTRAKILL: always fast, with a dash, endless wall jumps, ground slams and a grappling hook. You play a zombie gunslinger in a trenchcoat and fedora, up against more of his kind. Right now it's one test map: enemies that hunt you and shoot back, a few practice dummies, and a double-barrel shotgun.
+A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). You play a zombie gunslinger in a trenchcoat and fedora, hunted by humans with rifles. Movement is always fast: dash, slide, slam, wall jump, grapple and rocket jump your way around while you take them apart with a machete, a revolver, a double-barrel shotgun, a tommy gun and a rocket launcher.
+
+Right now it's one test map with a squad of hunters and a few practice dummies.
 
 ## Movement
 
-- **Always fast.** There's no sprint: running is already 600 units/s (about 15 m/s), with instant starts and hard stops (no ice-skating). A little forgiveness too: you can still jump just after running off a ledge, and a jump pressed just before landing still fires.
-- **Dash.** A short burst of speed wherever you're steering, with gravity off. It costs one of 3 charges, which refill over time. **Dash jump:** jump during a ground dash for a long, fast leap.
-- **Slide.** Hold slide on the ground, from a standstill or at speed. Slides never slow down on the flat, speed up downhill, and get a kick each time you start one. Jump out and land still sliding to build speed (slide-hopping), up to a cap of 2600 units/s.
+- **Always fast.** No sprint: running is already 600 units/s (about 15 m/s), with instant starts and hard stops (no ice-skating). A little forgiveness too: you can still jump just after running off a ledge, and a jump pressed just before landing still fires.
+- **Dash.** A burst of speed wherever you're steering, with gravity off and the view punching wide. You're untouchable while it lasts: enemy shots pass straight through you. Three charges that refill over time, and every kill hands one back. **Dash jump:** jump during a ground dash for a long, fast leap.
+- **Slide.** Hold slide on the ground, from a standstill or at speed. Slides never slow down on the flat, speed up downhill, and get a kick each time you start one. Jump out and land still sliding to build speed (slide-hopping).
 - **Ground slam.** Press slide in the air to drive straight down. Jump right as you land to **slam-bounce**: the further you fell, the higher you go.
 - **Grappling hook.** Hold to throw it at any surface (up to 5000 units away) and get yanked towards it. Let go or jump to drop it and keep your momentum. Floating platforms around the map are there to hook onto.
 - **Walls.** Touch any wall in the air and jump to wall jump, as many times as you like. Jump at a wall while moving along it to wall-run for up to 12 seconds; jump looking along it to *hop* and keep running, or looking away to *kick off*.
+- **Rocket jump.** Rockets shove you without hurting you: fire one at your feet and jump.
 - **Double jump**, which also turns you towards the direction you're holding, and **wall-hang** to grab a wall and hold still.
-
-## The zombie
-
-You're a zombie in a long trenchcoat and a fedora pulled down low: under the brim there's nothing but two glowing eyes. In first person you see his rotting grey-green hands on the shotgun; press **V** to see him from over the shoulder.
-
-## Enemies
-
-Zombie gunmen dressed like you, but with red eyes. They move with the same movement code you do (slower, and without the tricks), so steps, ramps and walls work the same for them.
-
-- Once one sees you, it hunts you: closes in, keeps its distance and strafes, and goes looking where it last saw you.
-- Its eyes flare white-hot just before it fires a slow glowing slug: dodge it. Each hit takes 15 of your 100 health.
-- A close shotgun blast bursts one apart; it comes back at its post 10 seconds later.
-- You heal slowly after a few seconds without being hit. At zero health you're back at the spawn.
 
 ## Weapons
 
-- **Double-barrel shotgun.** One barrel per click, 12 pellets per shot. After both barrels it breaks open and reloads by itself, or press reload to top up. A close-range shot drops a target dummy.
+| Slot | Weapon | |
+|---|---|---|
+| 1 | **Machete** | A wide slash at close range. **F** swings it whatever weapon is out. |
+| 2 | **Revolver** | Six shots, dead accurate, two to drop a hunter. |
+| 3 | **Shotgun** | Double barrel: one barrel per click, 12 pellets per shot. |
+| 4 | **Tommy gun** | Hold the trigger. A 50-round drum. |
+| 5 | **Rocket launcher** | Rockets you can watch fly; the blast hurts everything near it and throws you around. |
+
+Guns reload by themselves when empty, or press reload to top up. Switching weapons drops a reload in progress.
+
+## The zombie
+
+You're a zombie in a long trenchcoat and a fedora pulled down low: under the brim there's nothing but two glowing eyes. In first person you see his rotting grey-green hands on your weapons; press **V** to see him from over the shoulder.
+
+## Enemies
+
+Human hunters in field jackets, with caps or helmets and rifles. They move with the same movement code you do (slower, and without the tricks), so steps, ramps and walls work the same for them.
+
+- Once one sees you, it hunts you: closes in, keeps its distance and strafes, and goes looking where it last saw you.
+- Its rifle muzzle glows brighter and brighter just before it fires a slow glowing slug: dodge it, or dash through it. Each hit takes 15 of your 100 health.
+- Killed hunters burst apart and come back at their post 10 seconds later.
+- You heal slowly after a few seconds without being hit. At zero health you're back at the spawn.
 
 ## Look
 
@@ -35,7 +46,7 @@ The world renders at 270 pixels tall and is scaled up with hard pixel edges, a r
 
 ## Tuning
 
-Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pumpdump/assets/movement.ron). The shotgun's numbers are in [`crates/pumpdump/assets/shotgun.weapon.ron`](crates/pumpdump/assets/shotgun.weapon.ron). Edit either while the game is running: they reload when you save.
+Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pumpdump/assets/movement.ron), and every weapon number in [`crates/pumpdump/assets/weapons.ron`](crates/pumpdump/assets/weapons.ron). Edit either while the game is running: they reload when you save.
 
 ## Controls
 
@@ -44,6 +55,8 @@ Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pu
 | Move | WASD | Left stick |
 | Look | Mouse | Right stick |
 | Fire | Left mouse | RT |
+| Machete slash | F | R3 |
+| Pick weapon | 1–5, mouse wheel | Y (next) |
 | Reload | R | X |
 | Jump / double jump / wall jump | Space | A |
 | Dash | Shift | RB |
@@ -71,12 +84,12 @@ Then, from the repository folder:
 cargo run -p pumpdump
 ```
 
-The first build compiles Bevy and takes several minutes. Later builds are quick. To make a shareable Windows build like the one on the Releases page, run `package.cmd`: it writes the game folder and a zip to `dist\`. On Windows you can also double-click `run.cmd`.
+The first build compiles Bevy and takes several minutes. Later builds are quick. On Windows you can also double-click `run.cmd`. To make a shareable Windows build like the one on the Releases page, run `package.cmd`: it writes the game folder and a zip to `dist\`.
 
 ## Project layout
 
-- [`crates/pumpdump-movement`](crates/pumpdump-movement): all the movement rules. It doesn't depend on Bevy: each tick is a plain function of (state, input, world), so it runs the same in tests, in the game, and later on a server for multiplayer.
-- [`crates/pumpdump`](crates/pumpdump): the game itself. Bevy app, greybox map, first-person camera, keyboard/mouse and controller input.
+- [`crates/pumpdump-movement`](crates/pumpdump-movement): all the movement rules. It doesn't depend on Bevy: each tick is a plain function of (state, input, world), so it runs the same in tests, in the game, and later on a server for multiplayer. The enemies move with it too.
+- [`crates/pumpdump`](crates/pumpdump): the game itself. Bevy app, map, characters, weapons, enemies, first-person camera, keyboard/mouse and controller input.
 
 Run the tests with:
 

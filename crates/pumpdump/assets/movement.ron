@@ -1,4 +1,4 @@
-// PUMP&DUMP movement tuning, in the spirit of ULTRAKILL: always fast, dash on
+// PUMP&DUMP movement tuning: always fast, dash on
 // a stamina bar, slides that never slow down, ground slams, unlimited wall
 // jumps and a grappling hook. Every value is tuned by feel: change it, save,
 // and try it.
@@ -31,14 +31,15 @@
     slide_steer: 900.0,
 
     // Dash: a quick burst where you're steering (or straight ahead), with no
-    // gravity. Costs one of three charges, which refill over time. Jump during
-    // a ground dash for a long, fast dash jump.
+    // gravity. You're untouchable while it lasts. Costs one of three charges,
+    // which refill over time (and every kill gives one back). Jump during a
+    // ground dash for a long, fast dash jump.
     dash_charges: 3.0,
-    dash_recharge: 1.2,
-    dash_speed: 2000.0,
-    dash_time: 0.14,
-    dash_exit_speed: 750.0,
-    dash_jump_speed: 1400.0,
+    dash_recharge: 1.6,
+    dash_speed: 2400.0,
+    dash_time: 0.15,
+    dash_exit_speed: 950.0,
+    dash_jump_speed: 1600.0,
 
     // Ground slam: press slide in the air to drive straight down. Jump right as
     // you land to bounce up, higher the further you slammed from.

@@ -1,9 +1,11 @@
-﻿//! Enemies: zombie gunmen in trenchcoats and fedoras, with red eyes.
+//! Enemies: human hunters with rifles, out to put the zombie down.
 //!
 //! They move with the same movement code as the player (so they climb steps and
 //! ramps, and walls stop them), only slower and without the fancy moves. Once
 //! one sees you it hunts you: closes in, keeps its distance and strafes, and
-//! fires slow glowing slugs you can dodge. Its eyes flare just before each shot.
+//! fires slow glowing slugs you can dodge. Its rifle muzzle glows brighter and
+//! brighter just before each shot. Dashing makes you untouchable: shots pass
+//! through you mid-dash.
 //! Killed ones burst apart and come back at their post a while later.
 //!
 //! There's no pathfinding yet: they head straight for you (or where they last
@@ -15,10 +17,12 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use pumpdump_movement::{CollisionWorld, MoveInput, MovementState, MovementTuning, step};
 
-use crate::character::{self, EYE, Eyes, Gait, MUZZLE, Style, ZombieKit};
+use crate::character::{
+    self, CharacterKit, Gait, HUMAN_EYE, HumanLook, HumanStyle, MUZZLE_IDLE, RIFLE_MUZZLE,
+};
 use crate::health::PlayerHit;
 use crate::map::MapCollision;
-use crate::player::{MovementTick, PlayerStatus};
+use crate::player::{MovementTick, PlayerStatus, RefillDash};
 use crate::sfx::{self, Sounds};
 use crate::targets::{self, ChunkLook, Damage, Hitbox};
 use crate::tuning::{Tuning, TuningAsset};
@@ -32,7 +36,7 @@ impl Plugin for EnemiesPlugin {
                 FixedUpdate,
                 (take_damage, think, fly_shots).chain().after(MovementTick),
             )
-            .add_systems(Update, (place_enemies, glow_eyes));
+            .add_systems(Update, (place_enemies, show_warnings));
     }
 }
 
@@ -61,36 +65,43 @@ const SHOT_LIFE: f32 = 4.0;
 const LEAD: f32 = 0.5;
 /// Hit glow, seconds.
 const FLASH_TIME: f32 = 0.08;
-/// Hitbox: the model is 72 tall (74 with the hat), about 24 wide.
+/// Hitbox: the model is 72 tall (about 71 with the cap), about 24 wide.
 const HITBOX_HALF: Vec3 = Vec3::new(13.0, 37.0, 10.0);
 /// The player's body for being hit: an upright capsule this wide, from the feet
 /// up to the eyes. Matches movement.ron's capsule.
 const PLAYER_RADIUS: f32 = 16.0;
 const PLAYER_HEIGHT: f32 = 72.0;
 const PLAYER_EYE: f32 = 60.0;
-const RED_EYES: LinearRgba = LinearRgba::rgb(14.0, 0.8, 0.3);
+/// The rifle muzzle's glow at the moment it fires (it builds up to this).
+const MUZZLE_HOT: LinearRgba = LinearRgba::rgb(14.0, 5.0, 1.0);
 
-/// Where each enemy stands guard, and its coat.
-const POSTS: [(Vec3, Color); 7] = [
-    (
-        Vec3::new(-600.0, 0.0, -1600.0),
-        Color::srgb(0.25, 0.27, 0.16),
-    ),
-    (Vec3::new(420.0, 0.0, -1900.0), Color::srgb(0.33, 0.17, 0.1)),
-    (Vec3::new(0.0, 0.0, -3200.0), Color::srgb(0.2, 0.22, 0.26)),
-    (
-        Vec3::new(-1100.0, 0.0, -2400.0),
-        Color::srgb(0.3, 0.22, 0.15),
-    ),
-    (
-        Vec3::new(1500.0, 0.0, -800.0),
-        Color::srgb(0.25, 0.27, 0.16),
-    ),
-    (
-        Vec3::new(-1500.0, 0.0, -600.0),
-        Color::srgb(0.33, 0.17, 0.1),
-    ),
-    (Vec3::new(900.0, 0.0, 700.0), Color::srgb(0.2, 0.22, 0.26)),
+/// Where each enemy stands guard.
+const POSTS: [Vec3; 7] = [
+    Vec3::new(-600.0, 0.0, -1600.0),
+    Vec3::new(420.0, 0.0, -1900.0),
+    Vec3::new(0.0, 0.0, -3200.0),
+    Vec3::new(-1100.0, 0.0, -2400.0),
+    Vec3::new(1500.0, 0.0, -800.0),
+    Vec3::new(-1500.0, 0.0, -600.0),
+    Vec3::new(900.0, 0.0, 700.0),
+];
+
+/// Hunters' looks, handed out in turn: (jacket, skin, hair).
+const JACKETS: [Color; 4] = [
+    Color::srgb(0.27, 0.29, 0.17), // olive drab
+    Color::srgb(0.42, 0.36, 0.24), // tan
+    Color::srgb(0.16, 0.19, 0.26), // navy
+    Color::srgb(0.3, 0.3, 0.3),    // grey
+];
+const SKINS: [Color; 3] = [
+    Color::srgb(0.86, 0.68, 0.55),
+    Color::srgb(0.64, 0.46, 0.32),
+    Color::srgb(0.4, 0.27, 0.18),
+];
+const HAIRS: [Color; 3] = [
+    Color::srgb(0.08, 0.06, 0.05),
+    Color::srgb(0.3, 0.18, 0.08),
+    Color::srgb(0.6, 0.48, 0.25),
 ];
 
 #[derive(Component)]
@@ -120,8 +131,9 @@ pub struct Enemy {
     index: usize,
     /// A small per-enemy number, so they don't all act in lockstep.
     quirk: f32,
-    /// The eye glow last written to its material (only rewritten on change).
-    glow: LinearRgba,
+    /// What its look was last set to (materials are only rewritten on change):
+    /// muzzle glow, and whether the jacket was flashing.
+    shown: (LinearRgba, bool),
 }
 
 impl Enemy {
@@ -144,7 +156,7 @@ impl Enemy {
             flash: 0.0,
             index,
             quirk,
-            glow: RED_EYES,
+            shown: (MUZZLE_IDLE, false),
         }
     }
 }
@@ -180,17 +192,18 @@ fn make_shot_look(
 
 fn spawn_enemies(
     mut commands: Commands,
-    kit: Res<ZombieKit>,
+    kit: Res<CharacterKit>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (index, (post, coat)) in POSTS.into_iter().enumerate() {
-        let style = Style {
-            coat,
-            hat: coat.darker(0.12),
-            eyes: RED_EYES,
+    for (index, post) in POSTS.into_iter().enumerate() {
+        let style = HumanStyle {
+            jacket: JACKETS[index % JACKETS.len()],
+            skin: SKINS[index % SKINS.len()],
+            hair: HAIRS[(index / 2) % HAIRS.len()],
+            helmet: index % 3 == 1,
         };
         let enemy = Enemy::new(post, index);
-        let root = character::spawn_zombie(
+        let root = character::spawn_human(
             &mut commands,
             &kit,
             &mut materials,
@@ -232,6 +245,7 @@ fn take_damage(
     mut enemies: Query<(&mut Enemy, &mut Hitbox, &mut Visibility)>,
     chunks: Res<ChunkLook>,
     sounds: Option<Res<Sounds>>,
+    mut refill: MessageWriter<RefillDash>,
 ) {
     for hit in damage.read() {
         let Ok((mut enemy, mut hitbox, mut visibility)) = enemies.get_mut(hit.target) else {
@@ -260,6 +274,8 @@ fn take_damage(
             if let Some(sounds) = &sounds {
                 sfx::play(&mut commands, &sounds.thud);
             }
+            // Every kill hands back a dash charge, to keep you moving.
+            refill.write(RefillDash);
         }
     }
 }
@@ -297,7 +313,7 @@ fn think(
         }
 
         let feet = enemy.state.position;
-        let eye = feet + EYE;
+        let eye = feet + HUMAN_EYE;
         let to_player = player_eye - eye;
         let distance = to_player.length();
         // Seen if in range and nothing solid is in between.
@@ -371,14 +387,14 @@ fn think(
             enemy.previous = post;
         }
 
-        // Shooting: cool down, wind up (eyes flare), fire if still in sight.
+        // Shooting: cool down, wind up (muzzle glows), fire if still in sight.
         if let Some(windup) = enemy.windup {
             if windup + dt >= WINDUP {
                 enemy.windup = None;
                 enemy.cooldown = ATTACK_COOLDOWN * (0.8 + 0.4 * enemy.quirk);
                 if sees {
                     let facing = Quat::from_rotation_y(enemy.yaw);
-                    let muzzle = enemy.state.position + facing * MUZZLE;
+                    let muzzle = enemy.state.position + facing * RIFLE_MUZZLE;
                     let chest = player.position + Vec3::Y * (PLAYER_HEIGHT * 0.5);
                     let flight = muzzle.distance(chest) / SHOT_SPEED;
                     let aim = chest + player.velocity * flight * LEAD;
@@ -429,7 +445,8 @@ fn fly_shots(
         let hit_player = [0.5, 1.0].into_iter().any(|t| {
             distance_to_segment(from + travel * t, low, high) < PLAYER_RADIUS + SHOT_RADIUS
         });
-        if hit_player {
+        // Mid-dash you're untouchable: shots pass straight through.
+        if hit_player && !player.dashing {
             hits.write(PlayerHit {
                 damage: SHOT_DAMAGE,
             });
@@ -464,28 +481,35 @@ fn place_enemies(fixed: Res<Time<Fixed>>, mut enemies: Query<(&Enemy, &mut Trans
     }
 }
 
-/// Eyes flare white-hot while winding up a shot, and flash when hit.
-fn glow_eyes(
+/// The warning before a shot (the rifle muzzle glows brighter and brighter),
+/// and a white flash of the jacket when hit.
+fn show_warnings(
     time: Res<Time>,
-    mut enemies: Query<(&mut Enemy, &Eyes)>,
+    mut enemies: Query<(&mut Enemy, &HumanLook)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (mut enemy, eyes) in &mut enemies {
+    for (mut enemy, look) in &mut enemies {
         enemy.flash = (enemy.flash - time.delta_secs()).max(0.0);
-        let glow = if enemy.flash > 0.0 {
-            LinearRgba::rgb(20.0, 20.0, 20.0)
-        } else if let Some(windup) = enemy.windup {
-            // Brightening towards the shot.
-            RED_EYES * (1.0 + 4.0 * windup / WINDUP)
-        } else {
-            RED_EYES
+        let glow = match enemy.windup {
+            Some(windup) => MUZZLE_IDLE.mix(&MUZZLE_HOT, windup / WINDUP),
+            None => MUZZLE_IDLE,
         };
-        if glow != enemy.glow
-            && let Some(mut material) = materials.get_mut(&eyes.0)
+        let flashing = enemy.flash > 0.0;
+        if glow != enemy.shown.0
+            && let Some(mut material) = materials.get_mut(&look.muzzle_glow)
         {
             material.base_color = Color::LinearRgba(glow);
-            enemy.glow = glow;
         }
+        if flashing != enemy.shown.1
+            && let Some(mut material) = materials.get_mut(&look.jacket)
+        {
+            material.emissive = if flashing {
+                LinearRgba::rgb(5.0, 5.0, 5.0)
+            } else {
+                LinearRgba::BLACK
+            };
+        }
+        enemy.shown = (glow, flashing);
     }
 }
 
