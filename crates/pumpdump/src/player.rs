@@ -11,7 +11,8 @@ use pumpdump_movement::{CollisionWorld, Grapple, MoveInput, MovementState, WallK
 use crate::character::{self, CharacterKit, Gait, Style};
 use crate::heart::Boosts;
 use crate::input::{self, Action, look};
-use crate::map::{MapCollision, SKY, SPAWN};
+use crate::levels::{CurrentLevel, LevelLoad};
+use crate::map::{MapCollision, SKY};
 use crate::retro::RetroScreen;
 use crate::tuning::{Tuning, TuningAsset};
 
@@ -25,12 +26,23 @@ impl Plugin for PlayerPlugin {
         // `.chain()` runs the systems in the listed order.
         app.init_resource::<PlayerStatus>()
             .init_resource::<ThirdPerson>()
+            .init_resource::<Showcase>()
             .add_message::<RespawnPlayer>()
             .add_message::<RefillDash>()
             .add_message::<Knockback>()
             .add_systems(Startup, (spawn_player, spawn_body, spawn_hud))
             .add_systems(FixedUpdate, tick_movement.in_set(MovementTick))
-            .add_systems(Update, (aim, place_camera, place_body, update_hud).chain());
+            .add_systems(
+                Update,
+                (
+                    respawn.after(LevelLoad),
+                    aim,
+                    place_camera,
+                    place_body,
+                    update_hud,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -38,6 +50,10 @@ impl Plugin for PlayerPlugin {
 const FOV_DEGREES: f32 = 60.0;
 /// Fall this far and you're put back at the spawn.
 const KILL_HEIGHT: f32 = -2000.0;
+/// Where the player is before the first level loads.
+const START: Vec3 = Vec3::new(0.0, 1.0, 0.0);
+/// How fast the view turns by itself behind the title screen, radians per second.
+const SHOWCASE_TURN: f32 = 0.12;
 /// Inches to metres, for the HUD.
 const METRES_PER_UNIT: f32 = 0.0254;
 /// Camera lean away from the wall while wall-running, degrees.
@@ -74,7 +90,7 @@ pub struct PlayerCamera;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MovementTick;
 
-/// Send this to put the player back at the spawn (on death, say).
+/// Send this to put the player back at the level's start, facing its way.
 #[derive(Message, Clone, Copy)]
 pub struct RespawnPlayer;
 
@@ -90,6 +106,10 @@ pub struct Knockback(pub Vec3);
 #[derive(Resource, Default)]
 pub struct ThirdPerson(pub bool);
 
+/// The view slowly turns by itself (behind the title screen).
+#[derive(Resource, Default)]
+pub struct Showcase(pub bool);
+
 /// The player's zombie body, seen in third person.
 #[derive(Component)]
 struct PlayerBody;
@@ -101,6 +121,8 @@ pub struct PlayerStatus {
     /// Bottom of the capsule (the feet).
     pub position: Vec3,
     pub velocity: Vec3,
+    /// Which way the player looks, radians: 0 is -Z, positive turns left.
+    pub yaw: f32,
     pub on_ground: bool,
     /// The grappling hook, while it's out.
     pub grapple: Option<Grapple>,
@@ -143,8 +165,8 @@ fn spawn_player(mut commands: Commands, screen: Res<RetroScreen>) {
     commands.spawn((
         PlayerCamera,
         Player {
-            state: MovementState::new(SPAWN),
-            previous: SPAWN,
+            state: MovementState::new(START),
+            previous: START,
             yaw: 0.0,
             pitch: 0.0,
             view: ViewSmoothing::default(),
@@ -171,7 +193,7 @@ fn spawn_player(mut commands: Commands, screen: Res<RetroScreen>) {
             far: 20_000.0,
             ..default()
         }),
-        Transform::from_translation(SPAWN),
+        Transform::from_translation(START),
     ));
 }
 
@@ -185,7 +207,7 @@ fn spawn_body(
         &kit,
         &mut materials,
         Style::PLAYER,
-        Transform::from_translation(SPAWN),
+        Transform::from_translation(START),
     );
     // Hidden in first person: the camera is inside it.
     commands
@@ -193,15 +215,48 @@ fn spawn_body(
         .insert((PlayerBody, Visibility::Hidden));
 }
 
+/// Back to the level's start, facing its way, standing still. Works while the
+/// game is paused, so the view behind the menus is right.
+fn respawn(
+    mut respawns: MessageReader<RespawnPlayer>,
+    current: Res<CurrentLevel>,
+    mut status: ResMut<PlayerStatus>,
+    mut player: Single<&mut Player>,
+) {
+    if respawns.read().count() == 0 {
+        return;
+    }
+    put_at_start(&mut player, &current);
+    status.position = player.state.position;
+    status.velocity = Vec3::ZERO;
+    status.yaw = player.yaw;
+}
+
+fn put_at_start(player: &mut Player, current: &CurrentLevel) {
+    player.state = MovementState::new(current.spawn);
+    player.previous = current.spawn;
+    player.yaw = current.facing;
+    player.pitch = 0.0;
+    player.view = ViewSmoothing::default();
+}
+
 /// Mouse and right stick turn the view every frame, for responsive aim. V
 /// switches between first and third person.
 fn aim(
     time: Res<Time>,
+    real: Res<Time<Real>>,
+    showcase: Res<Showcase>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
     mut third_person: ResMut<ThirdPerson>,
     player: Single<(&mut Player, &ActionState<Action>)>,
 ) {
     let (mut player, actions) = player.into_inner();
+    if showcase.0 {
+        // Real time: the game is paused behind the title screen.
+        player.yaw = (player.yaw + SHOWCASE_TURN * real.delta_secs()).rem_euclid(TAU);
+        player.pitch = 0.05;
+        return;
+    }
     if actions.just_pressed(&Action::ToggleView) {
         third_person.0 = !third_person.0;
     }
@@ -228,8 +283,8 @@ fn tick_movement(
     tuning: Res<Tuning>,
     tunings: Res<Assets<TuningAsset>>,
     map: Res<MapCollision>,
+    current: Res<CurrentLevel>,
     mut status: ResMut<PlayerStatus>,
-    mut respawns: MessageReader<RespawnPlayer>,
     mut refills: MessageReader<RefillDash>,
     mut knockbacks: MessageReader<Knockback>,
     boosts: Res<Boosts>,
@@ -287,14 +342,12 @@ fn tick_movement(
         }
     }
 
-    let died = respawns.read().count() > 0;
-    if died || actions.just_pressed(&Action::Reset) || player.state.position.y < KILL_HEIGHT {
-        player.state = MovementState::new(SPAWN);
-        player.previous = SPAWN;
-        player.view = ViewSmoothing::default();
+    if actions.just_pressed(&Action::Reset) || player.state.position.y < KILL_HEIGHT {
+        put_at_start(&mut player, &current);
     }
     status.position = player.state.position;
     status.velocity = player.state.velocity;
+    status.yaw = player.yaw;
     status.on_ground = player.state.on_ground;
     status.grapple = player.state.grapple;
     status.stamina = player.state.stamina;
@@ -430,13 +483,17 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move  mouse look  left mouse fire  1-5 / wheel weapons  F machete  R reload  Space jump  Shift dash\n\
-                        Q heart (fire squeezes it)  Ctrl/C slide (air: slam)  E grapple  right mouse wall-hang  V third person  Esc free mouse\n\
-                        Pad: RT fire  D-pad down heart  Y weapon  R3 machete  X reload  A jump  RB dash  B slide/slam  LB grapple\n\
-                        Dash: untouchable while it lasts, 3 charges, every kill gives one back. Jump during a ground dash for a dash jump.\n\
-                        Slide any time on the ground; slide-hop to build speed. Slam, then jump as you land to bounce high.\n\
-                        Touch any wall in the air and jump to wall jump, as often as you like. Rocket at your feet + jump = rocket jump.\n\
-                        Edit assets/movement.ron, weapons.ron and heart.ron while playing; they reload on save.";
+/// Every control and a few tips, for the menus.
+pub const CONTROLS: &str = "WASD move   mouse look   left mouse fire   1-5 / wheel weapons   F machete   R reload\n\
+                            Space jump   Shift dash   Ctrl/C slide (air: slam)   E grapple   right mouse wall-hang\n\
+                            Q heart (fire squeezes it)   V third person   Backspace back to the start   Esc menu\n\
+                            Pad: RT fire  D-pad down heart  Y weapon  R3 machete  X reload  A jump  RB dash\n\
+                            B slide/slam  LB grapple  LT wall-hang  D-pad up third person  Start menu\n\
+                            \n\
+                            Dash: untouchable while it lasts, 3 charges, every kill gives one back.\n\
+                            Jump during a ground dash for a dash jump. Slide-hop to build speed.\n\
+                            Slam, then jump as you land to bounce high. Wall jump as often as you like.\n\
+                            Rocket at your feet + jump = rocket jump.";
 
 fn update_hud(
     player: Single<&Player>,
@@ -459,7 +516,7 @@ fn update_hud(
         (false, None) => "in air".to_string(),
     };
     let hint = if input::cursor_captured(&cursor) {
-        CONTROLS
+        "Esc: menu and controls"
     } else {
         "Click to capture the mouse"
     };

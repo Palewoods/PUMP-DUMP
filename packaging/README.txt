@@ -13,6 +13,17 @@ damage, accuracy, health, speed and reload speed, and the fastest gets a perk.
 Double-click PUMP&DUMP.exe to play. Keep the "assets" folder next to it.
 
 
+LEVELS
+------
+PLAY starts at the first level, LEVEL SELECT jumps to any, and TRAINING is
+a practice yard. Kill every hunter in a level and the exit's beacon lights
+up: get to it to clear the level.
+
+1 The Yard        A rail yard at dusk, stacked containers and a loading shed.
+2 The Rooftops    A city block at night. The exit is on the clock tower.
+3 The Foundry     Catwalks round a furnace pit. The exit is down in the pit.
+
+
 CONTROLS
 --------
                      Keyboard / mouse        Controller
@@ -30,8 +41,8 @@ Slide / slam         Ctrl or C               B
 Grappling hook       E (hold)                LB (hold)
 Wall-hang            Right mouse (hold)      LT (hold)
 First/third person   V                       D-pad up
-Back to spawn        Backspace               Back
-Free the mouse       Esc (click the window to capture it again)
+Back to the start    Backspace               Back
+Pause menu           Esc                     Start
 
 
 WEAPONS

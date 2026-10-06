@@ -116,19 +116,17 @@ pub mod look {
     pub const STICK_DEADZONE: f32 = 0.12;
 }
 
-/// Click in the window to capture the mouse for look; Escape releases it.
+/// While playing, a click in the window captures the mouse again (after
+/// switching away, say). Escape brings up the menu (see `run.rs`), which frees it.
 fn capture_cursor(
     mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
     mouse: Res<ButtonInput<MouseButton>>,
-    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time<Virtual>>,
 ) {
-    if mouse.just_pressed(MouseButton::Left) {
+    // Paused means a menu is up: clicks are for its buttons.
+    if mouse.just_pressed(MouseButton::Left) && !time.is_paused() {
         cursor.grab_mode = CursorGrabMode::Locked;
         cursor.visible = false;
-    }
-    if keys.just_pressed(KeyCode::Escape) {
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
     }
 }
 

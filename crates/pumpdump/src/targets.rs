@@ -6,18 +6,19 @@
 //! their health runs out, and come back a few seconds later.
 //!
 //! Dummies don't block movement: they're not in the map's collision world.
+//! Levels place them (see `levels.rs`).
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
-use crate::map::SPAWN;
+use crate::levels::LevelThing;
 
 pub struct TargetsPlugin;
 
 impl Plugin for TargetsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Damage>()
-            .add_systems(Startup, spawn_targets)
+            .add_systems(Startup, make_chunk_look)
             .add_systems(FixedUpdate, (apply_hits, respawn).chain())
             .add_systems(Update, (flash, fly_chunks));
     }
@@ -36,16 +37,6 @@ const BODY_COLOUR: Color = Color::srgb(0.55, 0.16, 0.12);
 const CHUNKS: usize = 10;
 const CHUNK_LIFE: f32 = 1.4;
 const CHUNK_GRAVITY: f32 = 1100.0;
-
-/// Feet positions of the practice dummies, near the spawn. (The enemies are
-/// what's out in the rest of the map.)
-const PLACES: [Vec3; 3] = [
-    Vec3::new(-250.0, 0.0, -500.0),
-    // On the platform at the top of the 30° ramp.
-    Vec3::new(650.0, 230.94, -820.0),
-    // Behind the spawn.
-    Vec3::new(SPAWN.x - 300.0, 0.0, 650.0),
-];
 
 /// Something the shotgun can hit: a box `half` in size, centred `offset` from
 /// the entity's translation. Switched off while whatever it belongs to is dead.
@@ -98,50 +89,58 @@ pub struct ChunkLook {
     material: Handle<StandardMaterial>,
 }
 
-fn spawn_targets(
+/// Stand a practice dummy with its feet at `feet`.
+pub fn spawn_dummy(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    feet: Vec3,
+) -> Entity {
+    let body = meshes.add(Cuboid::new(28.0, 68.0, 20.0));
+    let head = meshes.add(Cuboid::new(16.0, 16.0, 16.0));
+    // Each dummy has its own material so it can glow on its own when hit.
+    let material = materials.add(StandardMaterial {
+        base_color: BODY_COLOUR,
+        perceptual_roughness: 1.0,
+        reflectance: 0.0,
+        ..default()
+    });
+    commands
+        .spawn((
+            Target {
+                health: HEALTH,
+                dead_for: None,
+                flash: 0.0,
+                material: material.clone(),
+            },
+            Hitbox {
+                half: HALF,
+                offset: Vec3::ZERO,
+                enabled: true,
+            },
+            Transform::from_translation(feet + Vec3::Y * HALF.y),
+            Visibility::Visible,
+        ))
+        .with_children(|dummy| {
+            dummy.spawn((
+                Mesh3d(body),
+                MeshMaterial3d(material.clone()),
+                Transform::from_xyz(0.0, 34.0 - HALF.y, 0.0),
+            ));
+            dummy.spawn((
+                Mesh3d(head),
+                MeshMaterial3d(material),
+                Transform::from_xyz(0.0, 80.0 - HALF.y, 0.0),
+            ));
+        })
+        .id()
+}
+
+fn make_chunk_look(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let body = meshes.add(Cuboid::new(28.0, 68.0, 20.0));
-    let head = meshes.add(Cuboid::new(16.0, 16.0, 16.0));
-    for feet in PLACES {
-        // Each dummy has its own material so it can glow on its own when hit.
-        let material = materials.add(StandardMaterial {
-            base_color: BODY_COLOUR,
-            perceptual_roughness: 1.0,
-            reflectance: 0.0,
-            ..default()
-        });
-        commands
-            .spawn((
-                Target {
-                    health: HEALTH,
-                    dead_for: None,
-                    flash: 0.0,
-                    material: material.clone(),
-                },
-                Hitbox {
-                    half: HALF,
-                    offset: Vec3::ZERO,
-                    enabled: true,
-                },
-                Transform::from_translation(feet + Vec3::Y * HALF.y),
-                Visibility::Visible,
-            ))
-            .with_children(|dummy| {
-                dummy.spawn((
-                    Mesh3d(body.clone()),
-                    MeshMaterial3d(material.clone()),
-                    Transform::from_xyz(0.0, 34.0 - HALF.y, 0.0),
-                ));
-                dummy.spawn((
-                    Mesh3d(head.clone()),
-                    MeshMaterial3d(material),
-                    Transform::from_xyz(0.0, 80.0 - HALF.y, 0.0),
-                ));
-            });
-    }
     commands.insert_resource(ChunkLook {
         mesh: meshes.add(Cuboid::new(6.0, 6.0, 6.0)),
         material: materials.add(StandardMaterial {
@@ -197,6 +196,7 @@ pub fn burst(commands: &mut Commands, look: &ChunkLook, centre: Vec3, floor: f32
         let up = 250.0 + 180.0 * ((k * 7 % 5) as f32 / 4.0);
         let velocity = push * 260.0 + spread * 160.0 + Vec3::Y * up;
         commands.spawn((
+            LevelThing,
             Chunk {
                 velocity,
                 life: CHUNK_LIFE,

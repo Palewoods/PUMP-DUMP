@@ -11,6 +11,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use pumpdump_movement::CollisionWorld;
 
+use crate::levels::LevelThing;
 use crate::map::MapCollision;
 use crate::player::{Knockback, MovementTick, PlayerStatus};
 use crate::retro::VIEW_MODEL_LAYER;
@@ -112,6 +113,7 @@ pub fn launch(
 ) {
     commands
         .spawn((
+            LevelThing,
             Rocket {
                 velocity: direction * tuning.rocket_speed,
                 fuel: FUEL,

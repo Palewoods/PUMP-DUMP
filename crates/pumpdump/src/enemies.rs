@@ -6,7 +6,9 @@
 //! fires slow glowing slugs you can dodge. Its rifle muzzle glows brighter and
 //! brighter just before each shot. Dashing makes you untouchable: shots pass
 //! through you mid-dash.
-//! Killed ones burst apart and come back at their post a while later.
+//! Killed ones burst apart. In training they come back at their post a while
+//! later; in the levels, dead is dead. Each level places its own (see
+//! `levels.rs`).
 //!
 //! There's no pathfinding yet: they head straight for you (or where they last
 //! saw you) and hop when something's in the way.
@@ -21,6 +23,7 @@ use crate::character::{
     self, CharacterKit, Gait, HUMAN_EYE, HumanLook, HumanStyle, MUZZLE_IDLE, RIFLE_MUZZLE,
 };
 use crate::health::PlayerHit;
+use crate::levels::LevelThing;
 use crate::map::MapCollision;
 use crate::player::{MovementTick, PlayerStatus, RefillDash};
 use crate::sfx::{self, Sounds};
@@ -33,27 +36,20 @@ pub struct EnemiesPlugin;
 #[derive(Message, Clone, Copy)]
 pub struct EnemyKilled;
 
-/// Put every enemy back at its post, alive and unaware (a new run).
-#[derive(Message, Clone, Copy)]
-pub struct ResetEnemies;
-
 impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<EnemyKilled>()
-            .add_message::<ResetEnemies>()
-            .add_systems(Startup, (make_shot_look, spawn_enemies))
+            .add_systems(Startup, make_shot_look)
             .add_systems(
                 FixedUpdate,
-                (reset, take_damage, think, fly_shots)
-                    .chain()
-                    .after(MovementTick),
+                (take_damage, think, fly_shots).chain().after(MovementTick),
             )
             .add_systems(Update, (place_enemies, show_warnings));
     }
 }
 
 const HEALTH: f32 = 120.0;
-/// Seconds a killed enemy stays gone.
+/// Seconds a killed enemy stays gone (in training).
 const RESPAWN_TIME: f32 = 10.0;
 /// How far they can see you from (if nothing's in the way), units.
 const SIGHT_RANGE: f32 = 3500.0;
@@ -86,17 +82,6 @@ const PLAYER_HEIGHT: f32 = 72.0;
 const PLAYER_EYE: f32 = 60.0;
 /// The rifle muzzle's glow at the moment it fires (it builds up to this).
 const MUZZLE_HOT: LinearRgba = LinearRgba::rgb(14.0, 5.0, 1.0);
-
-/// Where each enemy stands guard.
-const POSTS: [Vec3; 7] = [
-    Vec3::new(-600.0, 0.0, -1600.0),
-    Vec3::new(420.0, 0.0, -1900.0),
-    Vec3::new(0.0, 0.0, -3200.0),
-    Vec3::new(-1100.0, 0.0, -2400.0),
-    Vec3::new(1500.0, 0.0, -800.0),
-    Vec3::new(-1500.0, 0.0, -600.0),
-    Vec3::new(900.0, 0.0, 700.0),
-];
 
 /// Hunters' looks, handed out in turn: (jacket, skin, hair).
 const JACKETS: [Color; 4] = [
@@ -139,8 +124,10 @@ pub struct Enemy {
     /// Seconds it's been pushing forward without getting anywhere.
     stuck: f32,
     flash: f32,
-    /// Which post it guards (its place in `POSTS`).
+    /// Which hunter of the level it is.
     index: usize,
+    /// Gets back up a while after being killed (in training).
+    respawns: bool,
     /// A small per-enemy number, so they don't all act in lockstep.
     quirk: f32,
     /// What its look was last set to (materials are only rewritten on change):
@@ -149,7 +136,7 @@ pub struct Enemy {
 }
 
 impl Enemy {
-    fn new(post: Vec3, index: usize) -> Self {
+    fn new(post: Vec3, index: usize, respawns: bool) -> Self {
         let quirk = (index as f32 * 0.618_034).fract();
         Self {
             state: MovementState::new(post),
@@ -167,9 +154,15 @@ impl Enemy {
             stuck: 0.0,
             flash: 0.0,
             index,
+            respawns,
             quirk,
             shown: (MUZZLE_IDLE, false),
         }
+    }
+
+    /// Still standing.
+    pub fn alive(&self) -> bool {
+        self.dead_for.is_none()
     }
 }
 
@@ -202,35 +195,38 @@ fn make_shot_look(
     });
 }
 
-fn spawn_enemies(
-    mut commands: Commands,
-    kit: Res<CharacterKit>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    for (index, post) in POSTS.into_iter().enumerate() {
-        let style = HumanStyle {
-            jacket: JACKETS[index % JACKETS.len()],
-            skin: SKINS[index % SKINS.len()],
-            hair: HAIRS[(index / 2) % HAIRS.len()],
-            helmet: index % 3 == 1,
-        };
-        let enemy = Enemy::new(post, index);
-        let root = character::spawn_human(
-            &mut commands,
-            &kit,
-            &mut materials,
-            style,
-            Transform::from_translation(post).with_rotation(Quat::from_rotation_y(enemy.yaw)),
-        );
-        commands.entity(root).insert((
-            enemy,
-            Hitbox {
-                half: HITBOX_HALF,
-                offset: Vec3::Y * HITBOX_HALF.y,
-                enabled: true,
-            },
-        ));
-    }
+/// Put a hunter at `post`, the level's `index`th (which picks its looks).
+pub fn spawn_hunter(
+    commands: &mut Commands,
+    kit: &CharacterKit,
+    materials: &mut Assets<StandardMaterial>,
+    post: Vec3,
+    index: usize,
+    respawns: bool,
+) -> Entity {
+    let style = HumanStyle {
+        jacket: JACKETS[index % JACKETS.len()],
+        skin: SKINS[index % SKINS.len()],
+        hair: HAIRS[(index / 2) % HAIRS.len()],
+        helmet: index % 3 == 1,
+    };
+    let enemy = Enemy::new(post, index, respawns);
+    let root = character::spawn_human(
+        commands,
+        kit,
+        materials,
+        style,
+        Transform::from_translation(post).with_rotation(Quat::from_rotation_y(enemy.yaw)),
+    );
+    commands.entity(root).insert((
+        enemy,
+        Hitbox {
+            half: HITBOX_HALF,
+            offset: Vec3::Y * HITBOX_HALF.y,
+            enabled: true,
+        },
+    ));
+    root
 }
 
 /// Movement tuning for enemies: the player's, slowed down and with the fancy
@@ -314,10 +310,13 @@ fn think(
     let player_eye = player.position + Vec3::Y * PLAYER_EYE;
 
     for (mut enemy, mut hitbox, mut visibility) in &mut enemies {
-        // Dead: wait, then come back at the post.
+        // Dead: stay dead, or (in training) wait and come back at the post.
         if let Some(dead_for) = enemy.dead_for {
+            if !enemy.respawns {
+                continue;
+            }
             if dead_for + dt >= RESPAWN_TIME {
-                *enemy = Enemy::new(enemy.post, enemy.index);
+                *enemy = Enemy::new(enemy.post, enemy.index, true);
                 hitbox.enabled = true;
                 *visibility = Visibility::Inherited;
             } else {
@@ -413,6 +412,7 @@ fn think(
                     let flight = muzzle.distance(chest) / SHOT_SPEED;
                     let aim = chest + player.velocity * flight * LEAD;
                     commands.spawn((
+                        LevelThing,
                         Shot {
                             velocity: (aim - muzzle).normalize_or_zero() * SHOT_SPEED,
                             life: SHOT_LIFE,
@@ -435,26 +435,6 @@ fn think(
                 enemy.windup = Some(0.0);
             }
         }
-    }
-}
-
-/// A new run: everyone back at their post, and no shots left in the air.
-fn reset(
-    mut commands: Commands,
-    mut resets: MessageReader<ResetEnemies>,
-    mut enemies: Query<(&mut Enemy, &mut Hitbox, &mut Visibility)>,
-    shots: Query<Entity, With<Shot>>,
-) {
-    if resets.read().count() == 0 {
-        return;
-    }
-    for (mut enemy, mut hitbox, mut visibility) in &mut enemies {
-        *enemy = Enemy::new(enemy.post, enemy.index);
-        hitbox.enabled = true;
-        *visibility = Visibility::Inherited;
-    }
-    for shot in &shots {
-        commands.entity(shot).despawn();
     }
 }
 

@@ -4,7 +4,19 @@ A fast-paced first-person movement shooter with a crunchy retro look, built in R
 
 Being dead, your heart doesn't beat on its own: you pull it out of your chest and squeeze it. Pick a faster heart rate at the start of a run and you'll be squeezing more often, but you'll hit harder, move faster and take more punishment.
 
-Right now it's one test map with a squad of hunters and a few practice dummies.
+There are three levels to fight through, plus a training yard.
+
+## Levels
+
+Pick **PLAY** on the title screen to start at the beginning, **LEVEL SELECT** to jump to any level, or **TRAINING** to mess about. In every level the job is the same: kill every hunter, and the exit's beacon lights up; get to it to clear the level. The HUD counts the hunters left, then points you to the exit. Your heart rate and perk carry on to the next level, and your health and heart are topped up.
+
+1. **The Yard.** A rail yard at dusk: lanes between stacked shipping containers, a loading shed and dock, and the tracks at the far end.
+2. **The Rooftops.** A city block at night. Hunters on the street and the roofs, and the way out is on top of the clock tower: climb the roofs one jump at a time, or grapple.
+3. **The Foundry.** Catwalks round the walls of a foundry, and a furnace in a pit in the middle. Clear the floor, then climb down into the heat.
+
+**Training** is the old test yard: ramps, stairs and ledges of every size, corridors for wall-running, floating platforms for the hook, practice dummies, and hunters that get back up.
+
+Press **Esc** (or Start) to pause: resume, restart the level, see the controls, or go back to the title screen.
 
 ## Your heart
 
@@ -24,7 +36,7 @@ At **Racing** you also pick a perk:
 - **Pulse:** squeezing your heart when it needs it blasts everything close around you (at most every 2 seconds).
 - **Second Heart:** the first time you die, you get back up.
 
-Dying ends the run: back to the heart rate screen.
+Dying ends the run: retry the level, pick a new heart rate, or go back to the title screen.
 
 ## Movement
 
@@ -59,7 +71,7 @@ Human hunters in field jackets, with caps or helmets and rifles. They move with 
 
 - Once one sees you, it hunts you: closes in, keeps its distance and strafes, and goes looking where it last saw you.
 - Its rifle muzzle glows brighter and brighter just before it fires a slow glowing slug: dodge it, or dash through it. Each hit takes 15 of your 100 health.
-- Killed hunters burst apart and come back at their post 10 seconds later.
+- Killed hunters burst apart and stay down (in training they come back 10 seconds later).
 - You heal slowly after a few seconds without being hit. At zero health the run is over.
 
 ## Look
@@ -87,8 +99,8 @@ Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pu
 | Grappling hook | E or back mouse button (hold) | LB (hold) |
 | Wall-hang | Right mouse (hold) | LT (hold) |
 | First / third person | V | D-pad up |
-| Back to spawn | Backspace | Back |
-| Free the mouse | Esc (click the window to capture it again) | |
+| Back to the level's start | Backspace | Back |
+| Pause menu | Esc | Start |
 
 ## Download
 
@@ -112,7 +124,7 @@ The first build compiles Bevy and takes several minutes. Later builds are quick.
 ## Project layout
 
 - [`crates/pumpdump-movement`](crates/pumpdump-movement): all the movement rules. It doesn't depend on Bevy: each tick is a plain function of (state, input, world), so it runs the same in tests, in the game, and later on a server for multiplayer. The enemies move with it too.
-- [`crates/pumpdump`](crates/pumpdump): the game itself. Bevy app, map, characters, weapons, enemies, first-person camera, keyboard/mouse and controller input.
+- [`crates/pumpdump`](crates/pumpdump): the game itself. Bevy app, menus, levels, characters, weapons, enemies, first-person camera, keyboard/mouse and controller input.
 
 Run the tests with:
 

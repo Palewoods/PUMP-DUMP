@@ -15,7 +15,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::character::{CharacterKit, SKIN, Style, limb, slab};
-use crate::heart::{Boosts, Heart};
+use crate::heart::{Boosts, Heart, Run};
 use crate::player::{PlayerCamera, PlayerStatus, ThirdPerson};
 use crate::retro::{RetroScreen, VIEW_MODEL_LAYER};
 use crate::weapon::{
@@ -885,6 +885,7 @@ fn animate(
     third_person: Res<ThirdPerson>,
     heart: Res<Heart>,
     boosts: Res<Boosts>,
+    run: Res<Run>,
     mut fx: ResMut<GunFx>,
     mut bob_phase: Local<f32>,
     view: Single<
@@ -978,7 +979,8 @@ fn animate(
 
     let kick = fx.kick;
     let (mut view, mut view_shown) = view.into_inner();
-    *view_shown = if third_person.0 {
+    // Nothing in hand on the title screen.
+    *view_shown = if third_person.0 || !run.started {
         Visibility::Hidden
     } else {
         Visibility::Inherited

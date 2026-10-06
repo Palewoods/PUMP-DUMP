@@ -2,8 +2,8 @@
 // game. Debug builds keep the console for log messages.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-//! PUMP&DUMP: a greybox map to run, jump and climb around in,
-//! driven by `pumpdump-movement`.
+//! PUMP&DUMP: a fast first-person shooter. Levels to run, jump and climb
+//! through, driven by `pumpdump-movement`, and hunters to put down.
 //!
 //! Run with `cargo run -p pumpdump`.
 //!
@@ -18,6 +18,7 @@ mod enemies;
 mod health;
 mod heart;
 mod input;
+mod levels;
 mod map;
 mod player;
 mod retro;
@@ -67,6 +68,11 @@ fn main() {
             enemies::EnemiesPlugin,
         ))
         // Rust note: one `add_plugins` call takes at most 15 plugins at a time.
-        .add_plugins((heart::HeartPlugin, run::RunPlugin, dev::DevPlugin))
+        .add_plugins((
+            heart::HeartPlugin,
+            levels::LevelsPlugin,
+            run::RunPlugin,
+            dev::DevPlugin,
+        ))
         .run();
 }
