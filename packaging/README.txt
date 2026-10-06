@@ -1,8 +1,9 @@
 PUMP&DUMP
 =========
 
-A fast-paced first-person movement shooter. Dash, slide, slam, wall jump and
-grapple around, and blast target dummies with a double-barrel shotgun.
+A fast-paced first-person movement shooter. You're a zombie gunslinger in a
+trenchcoat and fedora. Dash, slide, slam, wall jump and grapple around, and
+blast the red-eyed zombies hunting you with a double-barrel shotgun.
 
 Double-click PUMP&DUMP.exe to play. Keep the "assets" folder next to it.
 
@@ -19,12 +20,15 @@ Dash                 Shift                   RB
 Slide / slam         Ctrl or C               B
 Grappling hook       E (hold)                LB (hold)
 Wall-hang            Right mouse (hold)      LT (hold)
+First/third person   V                       D-pad up
 Back to spawn        Backspace               Back
 Free the mouse       Esc (click the window to capture it again)
 
 
 TIPS
 ----
+- Enemies' eyes flare white just before they fire. Their glowing shots are
+  slow enough to dodge. You heal after a few seconds out of the line of fire.
 - There's no sprint: you're always fast.
 - Dash costs one of 3 charges (bottom left); they refill. Jump during a
   ground dash for a long dash jump.

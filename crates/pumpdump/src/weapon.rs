@@ -20,12 +20,13 @@ use leafwing_input_manager::prelude::*;
 use pumpdump_movement::CollisionWorld;
 use serde::Deserialize;
 
+use crate::character::{self, SKIN, Style, ZombieKit};
 use crate::input::{self, Action};
 use crate::map::MapCollision;
-use crate::player::{self, PlayerCamera, PlayerStatus};
+use crate::player::{self, PlayerCamera, PlayerStatus, ThirdPerson};
 use crate::retro::{RetroScreen, VIEW_MODEL_LAYER};
 use crate::sfx::{self, Sounds};
-use crate::targets::{Target, TargetHit, ray_box};
+use crate::targets::{Damage, Hitbox, ray_box};
 
 pub struct WeaponPlugin;
 
@@ -240,10 +241,10 @@ fn tick_shotgun(
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
     camera: Single<(&Transform, &ActionState<Action>), With<PlayerCamera>>,
     map: Res<MapCollision>,
-    targets: Query<(Entity, &Transform, &Target)>,
+    targets: Query<(Entity, &Transform, &Hitbox)>,
     mut gun: ResMut<Shotgun>,
     mut fx: ResMut<GunFx>,
-    mut hits: MessageWriter<TargetHit>,
+    mut hits: MessageWriter<Damage>,
 ) {
     let Some(tuning) = tunings.get(&handle.0) else {
         return;
@@ -290,9 +291,9 @@ fn tick_shotgun(
             .map(|hit| (hit.fraction * tuning.range, hit.normal));
         let target = targets
             .iter()
-            .filter(|(_, _, target)| target.alive())
-            .filter_map(|(entity, transform, _)| {
-                let distance = ray_box(origin, direction, transform.translation, Target::HALF)?;
+            .filter(|(_, _, hitbox)| hitbox.enabled)
+            .filter_map(|(entity, transform, hitbox)| {
+                let distance = ray_box(origin, direction, hitbox.centre(transform), hitbox.half)?;
                 (distance <= tuning.range).then_some((distance, entity))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0));
@@ -300,9 +301,9 @@ fn tick_shotgun(
         match (wall, target) {
             (_, Some((distance, entity))) if wall.is_none_or(|(w, _)| distance < w) => {
                 let point = origin + direction * distance;
-                hits.write(TargetHit {
+                hits.write(Damage {
                     target: entity,
-                    damage: tuning.pellet_damage,
+                    amount: tuning.pellet_damage,
                     direction,
                 });
                 spawn_puff(&mut commands, &look, &look.blood, point - direction * 2.0);
@@ -404,6 +405,7 @@ fn spawn_view_model(
     mut commands: Commands,
     eye: Single<Entity, With<PlayerCamera>>,
     screen: Res<RetroScreen>,
+    kit: Res<ZombieKit>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -426,6 +428,73 @@ fn spawn_view_model(
         unlit: true,
         ..default()
     });
+    let coat = materials.add(StandardMaterial {
+        base_color: Style::PLAYER.coat,
+        perceptual_roughness: 1.0,
+        reflectance: 0.05,
+        ..default()
+    });
+    let rot = materials.add(StandardMaterial {
+        base_color: SKIN.darker(0.15),
+        perceptual_roughness: 1.0,
+        ..default()
+    });
+    // The player's rotting hands, gripping the gun, in coat sleeves that run back
+    // out of view. All boxes: the kit's unit cube, stretched. Gun-local space.
+    let hands = [
+        // Right hand round the wrist of the stock, fingers curled under, one on
+        // the trigger, a rotten patch on the back.
+        (
+            &kit.skin(),
+            character::slab(Vec3::new(0.3, -2.6, 7.0), Vec3::new(3.4, 3.4, 4.0)),
+        ),
+        (
+            &kit.skin(),
+            character::slab(Vec3::new(0.2, -4.2, 6.0), Vec3::new(3.0, 1.2, 2.4)),
+        ),
+        (
+            &kit.skin(),
+            character::slab(Vec3::new(0.5, -2.4, 4.0), Vec3::new(0.9, 0.9, 2.4)),
+        ),
+        (
+            &rot,
+            character::slab(Vec3::new(0.3, -0.9, 7.2), Vec3::new(2.4, 0.4, 2.4)),
+        ),
+        (
+            &coat,
+            character::limb(
+                Vec3::new(0.6, -3.0, 8.5),
+                Vec3::new(3.5, -9.0, 22.0),
+                Vec2::splat(5.2),
+            ),
+        ),
+        // Left hand cupping the fore-end: palm under, thumb along one side,
+        // clawed fingers along the other.
+        (
+            &kit.skin(),
+            character::slab(Vec3::new(0.0, -2.7, -9.5), Vec3::new(3.6, 2.2, 5.0)),
+        ),
+        (
+            &kit.skin(),
+            character::slab(Vec3::new(-1.8, -1.3, -9.5), Vec3::new(1.0, 1.4, 3.6)),
+        ),
+        (
+            &kit.skin(),
+            character::slab(Vec3::new(1.8, -1.4, -9.8), Vec3::new(1.0, 1.6, 4.4)),
+        ),
+        (
+            &rot,
+            character::slab(Vec3::new(0.0, -3.9, -9.0), Vec3::new(2.6, 0.4, 3.0)),
+        ),
+        (
+            &coat,
+            character::limb(
+                Vec3::new(-0.5, -3.6, -7.5),
+                Vec3::new(-14.0, -8.0, 9.0),
+                Vec2::splat(5.2),
+            ),
+        ),
+    ];
     let barrel = meshes.add(Cylinder::new(0.8, 21.0));
     let along_z = Quat::from_rotation_x(PI / 2.0);
     // (mesh, material, position, rotation) for each part, gun pointing along -Z.
@@ -524,6 +593,15 @@ fn spawn_view_model(
                     NotShadowCaster,
                 ));
             }
+            for (material, transform) in hands {
+                gun.spawn((
+                    Mesh3d(kit.cube()),
+                    MeshMaterial3d(material.clone()),
+                    transform,
+                    layer.clone(),
+                    NotShadowCaster,
+                ));
+            }
             gun.spawn((
                 MuzzleFlash,
                 Transform::from_xyz(0.0, 0.0, -22.0),
@@ -548,17 +626,19 @@ fn spawn_view_model(
     });
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn animate_view_model(
     time: Res<Time>,
     gun: Res<Shotgun>,
     handle: Res<ShotgunHandle>,
     tunings: Res<Assets<ShotgunAsset>>,
     status: Res<PlayerStatus>,
+    third_person: Res<ThirdPerson>,
     mut fx: ResMut<GunFx>,
     mut bob_phase: Local<f32>,
-    model: Single<&mut Transform, With<ViewModel>>,
-    flash: Single<&mut Visibility, With<MuzzleFlash>>,
+    // Both change visibility, so Bevy needs telling they're never the same entity.
+    model: Single<(&mut Transform, &mut Visibility), (With<ViewModel>, Without<MuzzleFlash>)>,
+    flash: Single<&mut Visibility, (With<MuzzleFlash>, Without<ViewModel>)>,
     light: Single<&mut PointLight, With<FlashLight>>,
 ) {
     let dt = time.delta_secs();
@@ -585,7 +665,12 @@ fn animate_view_model(
     let bob = Vec3::new(phase.sin() * 0.4, -(phase * 2.0).sin().abs() * 0.35, 0.0) * sway;
 
     let kick = fx.kick;
-    let mut model = model.into_inner();
+    let (mut model, mut shown) = model.into_inner();
+    *shown = if third_person.0 {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
     model.translation = GUN_REST + bob + Vec3::new(0.0, kick * 0.6 - dip * 4.0, kick * 4.0);
     model.rotation = Quat::from_euler(
         EulerRot::XYZ,

@@ -41,6 +41,8 @@ pub enum Action {
     Fire,
     /// Reload the weapon.
     Reload,
+    /// Switch between first- and third-person view.
+    ToggleView,
     /// Back to the spawn point.
     Reset,
 }
@@ -67,6 +69,8 @@ pub fn default_bindings() -> InputMap<Action> {
         .with(Action::Fire, GamepadButton::RightTrigger2)
         .with(Action::Reload, KeyCode::KeyR)
         .with(Action::Reload, GamepadButton::West)
+        .with(Action::ToggleView, KeyCode::KeyV)
+        .with(Action::ToggleView, GamepadButton::DPadUp)
         .with(Action::Reset, KeyCode::Backspace)
         .with(Action::Reset, GamepadButton::Select)
 }

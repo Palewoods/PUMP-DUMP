@@ -1,6 +1,6 @@
 # PUMP&DUMP
 
-A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). Movement takes its cue from ULTRAKILL: always fast, with a dash, endless wall jumps, ground slams and a grappling hook. Right now it's a sandbox: a test map to fly around and target dummies to blast with a double-barrel shotgun.
+A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). Movement takes its cue from ULTRAKILL: always fast, with a dash, endless wall jumps, ground slams and a grappling hook. You play a zombie gunslinger in a trenchcoat and fedora, up against more of his kind. Right now it's one test map: enemies that hunt you and shoot back, a few practice dummies, and a double-barrel shotgun.
 
 ## Movement
 
@@ -11,6 +11,19 @@ A fast-paced first-person movement shooter with a crunchy retro look, built in R
 - **Grappling hook.** Hold to throw it at any surface (up to 5000 units away) and get yanked towards it. Let go or jump to drop it and keep your momentum. Floating platforms around the map are there to hook onto.
 - **Walls.** Touch any wall in the air and jump to wall jump, as many times as you like. Jump at a wall while moving along it to wall-run for up to 12 seconds; jump looking along it to *hop* and keep running, or looking away to *kick off*.
 - **Double jump**, which also turns you towards the direction you're holding, and **wall-hang** to grab a wall and hold still.
+
+## The zombie
+
+You're a zombie in a long trenchcoat and a fedora pulled down low: under the brim there's nothing but two glowing eyes. In first person you see his rotting grey-green hands on the shotgun; press **V** to see him from over the shoulder.
+
+## Enemies
+
+Zombie gunmen dressed like you, but with red eyes. They move with the same movement code you do (slower, and without the tricks), so steps, ramps and walls work the same for them.
+
+- Once one sees you, it hunts you: closes in, keeps its distance and strafes, and goes looking where it last saw you.
+- Its eyes flare white-hot just before it fires a slow glowing slug: dodge it. Each hit takes 15 of your 100 health.
+- A close shotgun blast bursts one apart; it comes back at its post 10 seconds later.
+- You heal slowly after a few seconds without being hit. At zero health you're back at the spawn.
 
 ## Weapons
 
@@ -37,6 +50,7 @@ Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pu
 | Slide (on the ground) / slam (in the air) | Ctrl or C | B |
 | Grappling hook | E or back mouse button (hold) | LB (hold) |
 | Wall-hang | Right mouse (hold) | LT (hold) |
+| First / third person | V | D-pad up |
 | Back to spawn | Backspace | Back |
 | Free the mouse | Esc (click the window to capture it again) | |
 

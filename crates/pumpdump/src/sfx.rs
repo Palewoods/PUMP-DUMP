@@ -37,8 +37,12 @@ pub struct Sounds {
     pub whoosh: Handle<Sfx>,
     /// The grappling hook biting into something.
     pub clank: Handle<Sfx>,
-    /// A ground slam landing.
+    /// A ground slam landing, or an enemy bursting apart.
     pub thud: Handle<Sfx>,
+    /// An enemy firing.
+    pub zap: Handle<Sfx>,
+    /// The player getting hit.
+    pub hurt: Handle<Sfx>,
 }
 
 /// Play a sound once.
@@ -115,6 +119,8 @@ fn make_sounds(mut commands: Commands, mut sfx: ResMut<Assets<Sfx>>) {
         whoosh: add(whoosh()),
         clank: add(click(0.12, 900.0, 0.7, 17)),
         thud: add(thud()),
+        zap: add(zap()),
+        hurt: add(hurt()),
     });
 }
 
@@ -182,6 +188,34 @@ fn thud() -> Vec<f32> {
         .collect()
 }
 
+/// An enemy shot: a falling, buzzing tone.
+fn zap() -> Vec<f32> {
+    let mut noise = Noise(0x07A9_3E11);
+    let mut phase = 0.0f32;
+    samples(0.3)
+        .map(|t| {
+            // Pitch falls from 900 Hz to 250 Hz; part square wave, for buzz.
+            phase += TAU * (900.0 - 2200.0 * t).max(250.0) / SAMPLE_RATE as f32;
+            let buzz = phase.sin().signum() * 0.35 + phase.sin() * 0.3;
+            let fade = (-t * 14.0).exp();
+            ((buzz + noise.next() * 0.15) * fade * 0.6).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// Getting hit: a dull punch with a crunch.
+fn hurt() -> Vec<f32> {
+    let mut noise = Noise(0x0F00_D00D);
+    let mut low = 0.0;
+    samples(0.3)
+        .map(|t| {
+            low += 0.2 * (noise.next() - low);
+            let punch = (TAU * (140.0 - 200.0 * t).max(50.0) * t).sin() * (-t * 16.0).exp();
+            ((punch + low * 1.6 * (-t * 22.0).exp()) * 0.85).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
 /// A short mechanical click: a noise tick plus a quickly fading ring at `pitch`.
 fn click(seconds: f32, pitch: f32, volume: f32, seed: u32) -> Vec<f32> {
     let mut noise = Noise(0x1234_5678 ^ seed.wrapping_mul(0x0101_0101));
@@ -205,6 +239,8 @@ mod tests {
             click(0.05, 1900.0, 0.5, 3),
             whoosh(),
             thud(),
+            zap(),
+            hurt(),
         ] {
             assert!(sound.iter().all(|s| s.abs() <= 1.0));
             let tail = &sound[sound.len() * 9 / 10..];

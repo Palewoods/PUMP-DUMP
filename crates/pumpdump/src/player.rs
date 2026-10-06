@@ -1,13 +1,14 @@
 //! The player: feeds actions into `pumpdump_movement::step` every fixed tick, and places
-//! the first-person camera every rendered frame.
+//! the camera (first or third person) and the player's zombie body every rendered frame.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, PrimaryWindow};
 use leafwing_input_manager::prelude::*;
-use pumpdump_movement::{Grapple, MoveInput, MovementState, WallKind, step};
+use pumpdump_movement::{CollisionWorld, Grapple, MoveInput, MovementState, WallKind, step};
 
+use crate::character::{self, Gait, Style, ZombieKit};
 use crate::input::{self, Action, look};
 use crate::map::{MapCollision, SKY, SPAWN};
 use crate::retro::RetroScreen;
@@ -22,9 +23,11 @@ impl Plugin for PlayerPlugin {
         // same at 30 or 240 fps. `Update` runs once per frame, for anything visual.
         // `.chain()` runs the systems in the listed order.
         app.init_resource::<PlayerStatus>()
-            .add_systems(Startup, (spawn_player, spawn_hud))
+            .init_resource::<ThirdPerson>()
+            .add_message::<RespawnPlayer>()
+            .add_systems(Startup, (spawn_player, spawn_body, spawn_hud))
             .add_systems(FixedUpdate, tick_movement.in_set(MovementTick))
-            .add_systems(Update, (aim, place_camera, update_hud).chain());
+            .add_systems(Update, (aim, place_camera, place_body, update_hud).chain());
     }
 }
 
@@ -44,6 +47,11 @@ const SLIDE_EYE_DROP: f32 = 28.0;
 /// How fast the camera eases towards step offsets, lean and FOV, per second.
 /// Higher is snappier.
 const VIEW_EASE_RATE: f32 = 12.0;
+/// Third-person camera, from the eyes: this far back, up and right (over the
+/// right shoulder, so the body doesn't block the crosshair), units.
+const THIRD_PERSON_BACK: f32 = 130.0;
+const THIRD_PERSON_UP: f32 = 16.0;
+const THIRD_PERSON_RIGHT: f32 = 30.0;
 /// Distance fog: clear up to here, units...
 const FOG_START: f32 = 500.0;
 /// ...and fully the sky colour from here.
@@ -59,10 +67,24 @@ pub struct PlayerCamera;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MovementTick;
 
+/// Send this to put the player back at the spawn (on death, say).
+#[derive(Message, Clone, Copy)]
+pub struct RespawnPlayer;
+
+/// Viewing from behind (true) or through the eyes (false). V toggles it.
+#[derive(Resource, Default)]
+pub struct ThirdPerson(pub bool);
+
+/// The player's zombie body, seen in third person.
+#[derive(Component)]
+struct PlayerBody;
+
 /// What the rest of the game may want to know about the player's movement,
 /// updated every tick. Read-only for everyone but this module.
 #[derive(Resource, Default)]
 pub struct PlayerStatus {
+    /// Bottom of the capsule (the feet).
+    pub position: Vec3,
     pub velocity: Vec3,
     pub on_ground: bool,
     /// The grappling hook, while it's out.
@@ -136,13 +158,36 @@ fn spawn_player(mut commands: Commands, screen: Res<RetroScreen>) {
     ));
 }
 
-/// Mouse and right stick turn the view every frame, for responsive aim.
+fn spawn_body(
+    mut commands: Commands,
+    kit: Res<ZombieKit>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let body = character::spawn_zombie(
+        &mut commands,
+        &kit,
+        &mut materials,
+        Style::PLAYER,
+        Transform::from_translation(SPAWN),
+    );
+    // Hidden in first person: the camera is inside it.
+    commands
+        .entity(body)
+        .insert((PlayerBody, Visibility::Hidden));
+}
+
+/// Mouse and right stick turn the view every frame, for responsive aim. V
+/// switches between first and third person.
 fn aim(
     time: Res<Time>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
+    mut third_person: ResMut<ThirdPerson>,
     player: Single<(&mut Player, &ActionState<Action>)>,
 ) {
     let (mut player, actions) = player.into_inner();
+    if actions.just_pressed(&Action::ToggleView) {
+        third_person.0 = !third_person.0;
+    }
     let mut turn = Vec2::ZERO; // x = yaw, y = pitch
     if input::cursor_captured(&cursor) {
         // Raw mouse deltas: +x is right, +y is down.
@@ -166,6 +211,7 @@ fn tick_movement(
     tunings: Res<Assets<TuningAsset>>,
     map: Res<MapCollision>,
     mut status: ResMut<PlayerStatus>,
+    mut respawns: MessageReader<RespawnPlayer>,
     player: Single<(&mut Player, &ActionState<Action>)>,
 ) {
     // `let ... else` returns early if movement.ron hasn't finished loading.
@@ -210,11 +256,13 @@ fn tick_movement(
         }
     }
 
-    if actions.just_pressed(&Action::Reset) || player.state.position.y < KILL_HEIGHT {
+    let died = respawns.read().count() > 0;
+    if died || actions.just_pressed(&Action::Reset) || player.state.position.y < KILL_HEIGHT {
         player.state = MovementState::new(SPAWN);
         player.previous = SPAWN;
         player.view = ViewSmoothing::default();
     }
+    status.position = player.state.position;
     status.velocity = player.state.velocity;
     status.on_ground = player.state.on_ground;
     status.grapple = player.state.grapple;
@@ -224,11 +272,14 @@ fn tick_movement(
     status.slamming = player.state.slam.is_some();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn place_camera(
     time: Res<Time>,
     fixed: Res<Time<Fixed>>,
     tuning: Res<Tuning>,
     tunings: Res<Assets<TuningAsset>>,
+    third_person: Res<ThirdPerson>,
+    map: Res<MapCollision>,
     player: Single<(&mut Player, &mut Transform, &mut Projection)>,
 ) {
     let Some(tuning) = tunings.get(&tuning.0) else {
@@ -272,9 +323,43 @@ fn place_camera(
     let eye = tuning.eye_height + view.step_offset - view.slide_drop;
     transform.translation = feet + Vec3::Y * eye;
     transform.rotation = Quat::from_euler(EulerRot::YXZ, *yaw, *pitch, view.roll);
+    if third_person.0 {
+        // Pull back behind the head, but not through walls: stop short of
+        // whatever is in the way.
+        let back =
+            transform.rotation * Vec3::new(THIRD_PERSON_RIGHT, THIRD_PERSON_UP, THIRD_PERSON_BACK);
+        let room = map
+            .0
+            .cast_ray(transform.translation, back)
+            .map_or(1.0, |hit| (hit.fraction - 8.0 / back.length()).max(0.0));
+        transform.translation += back * room;
+    }
     if let Projection::Perspective(perspective) = projection.as_mut() {
         perspective.fov = (FOV_DEGREES + view.fov_bonus).to_radians();
     }
+}
+
+/// Stand the player's body where the player is (between ticks, like the camera),
+/// facing where they look, and show it only in third person.
+fn place_body(
+    fixed: Res<Time<Fixed>>,
+    third_person: Res<ThirdPerson>,
+    player: Single<&Player>,
+    body: Single<(&mut Transform, &mut Visibility, &mut Gait), With<PlayerBody>>,
+) {
+    let (mut transform, mut visibility, mut gait) = body.into_inner();
+    let state = &player.state;
+    transform.translation = player
+        .previous
+        .lerp(state.position, fixed.overstep_fraction());
+    transform.rotation = Quat::from_rotation_y(player.yaw);
+    gait.speed = Vec2::new(state.velocity.x, state.velocity.z).length();
+    gait.grounded = state.on_ground;
+    *visibility = if third_person.0 {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
 }
 
 /// Deadzone, then a response curve. Keeps the direction, reshapes the length.
@@ -308,7 +393,7 @@ fn spawn_hud(mut commands: Commands) {
 }
 
 const CONTROLS: &str = "WASD move   mouse look   left mouse fire   R reload   Space jump   Shift dash   Ctrl/C slide (in the air: slam)\n\
-                        E grapple (hold)   right mouse wall-hang   Backspace back to spawn   Esc free mouse\n\
+                        E grapple (hold)   right mouse wall-hang   V third person   Backspace back to spawn   Esc free mouse\n\
                         Controller: sticks   RT fire   X reload   A jump   RB dash   B slide/slam   LB grapple   LT wall-hang   Back to spawn\n\
                         Dash costs a charge (3, they refill). Jump during a ground dash for a long dash jump.\n\
                         Slide any time on the ground; slide-hop to build speed. Slam, then jump as you land to bounce high.\n\

@@ -12,7 +12,10 @@
 //! Systems declare what data they need in their parameters, and Bevy hands it over.
 
 mod abilities;
+mod character;
 mod dev;
+mod enemies;
+mod health;
 mod input;
 mod map;
 mod player;
@@ -48,11 +51,14 @@ fn main() {
             tuning::TuningPlugin,
             input::InputPlugin,
             sfx::SfxPlugin,
+            character::CharacterPlugin,
             map::MapPlugin,
             player::PlayerPlugin,
             targets::TargetsPlugin,
             weapon::WeaponPlugin,
             abilities::AbilitiesPlugin,
+            health::HealthPlugin,
+            enemies::EnemiesPlugin,
             dev::DevPlugin,
         ))
         .run();

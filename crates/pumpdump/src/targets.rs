@@ -1,5 +1,9 @@
-//! Target dummies to shoot at. They flash when hit, burst into chunks when their
-//! health runs out, and come back a few seconds later.
+//! Things you can shoot, and practice dummies.
+//!
+//! Anything with a [`Hitbox`] can be hit by the shotgun, which sends a [`Damage`]
+//! message; whoever owns the entity (the dummies here, the enemies in
+//! `enemies.rs`) applies it. The dummies flash when hit, burst into chunks when
+//! their health runs out, and come back a few seconds later.
 //!
 //! Dummies don't block movement: they're not in the map's collision world.
 
@@ -12,7 +16,7 @@ pub struct TargetsPlugin;
 
 impl Plugin for TargetsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<TargetHit>()
+        app.add_message::<Damage>()
             .add_systems(Startup, spawn_targets)
             .add_systems(FixedUpdate, (apply_hits, respawn).chain())
             .add_systems(Update, (flash, fly_chunks));
@@ -33,24 +37,37 @@ const CHUNKS: usize = 10;
 const CHUNK_LIFE: f32 = 1.4;
 const CHUNK_GRAVITY: f32 = 1100.0;
 
-/// Feet positions of the dummies around the map.
-const PLACES: [Vec3; 7] = [
+/// Feet positions of the practice dummies, near the spawn. (The enemies are
+/// what's out in the rest of the map.)
+const PLACES: [Vec3; 3] = [
     Vec3::new(-250.0, 0.0, -500.0),
-    Vec3::new(150.0, 0.0, -1150.0),
-    Vec3::new(-700.0, 0.0, -1200.0),
-    Vec3::new(0.0, 0.0, -2100.0),
-    Vec3::new(80.0, 0.0, -2900.0),
     // On the platform at the top of the 30° ramp.
     Vec3::new(650.0, 230.94, -820.0),
     // Behind the spawn.
     Vec3::new(SPAWN.x - 300.0, 0.0, 650.0),
 ];
 
-/// Damage dealt to a dummy. Written by weapons, applied here.
+/// Something the shotgun can hit: a box `half` in size, centred `offset` from
+/// the entity's translation. Switched off while whatever it belongs to is dead.
+#[derive(Component)]
+pub struct Hitbox {
+    pub half: Vec3,
+    pub offset: Vec3,
+    pub enabled: bool,
+}
+
+impl Hitbox {
+    pub fn centre(&self, transform: &Transform) -> Vec3 {
+        transform.translation + self.offset
+    }
+}
+
+/// Damage dealt to something with a [`Hitbox`]. Written by weapons, applied by
+/// whoever owns the entity.
 #[derive(Message, Clone, Copy)]
-pub struct TargetHit {
+pub struct Damage {
     pub target: Entity,
-    pub damage: f32,
+    pub amount: f32,
     /// Which way the shot was going. Chunks fly that way.
     pub direction: Vec3,
 }
@@ -65,16 +82,7 @@ pub struct Target {
     material: Handle<StandardMaterial>,
 }
 
-impl Target {
-    /// Hitbox half-size. The entity's translation is the hitbox centre.
-    pub const HALF: Vec3 = HALF;
-
-    pub fn alive(&self) -> bool {
-        self.dead_for.is_none()
-    }
-}
-
-/// A flying chunk of a destroyed dummy.
+/// A flying chunk of something destroyed.
 #[derive(Component)]
 struct Chunk {
     velocity: Vec3,
@@ -83,8 +91,9 @@ struct Chunk {
     floor: f32,
 }
 
+/// What the chunks of destroyed things look like.
 #[derive(Resource)]
-struct ChunkLook {
+pub struct ChunkLook {
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
 }
@@ -111,6 +120,11 @@ fn spawn_targets(
                     dead_for: None,
                     flash: 0.0,
                     material: material.clone(),
+                },
+                Hitbox {
+                    half: HALF,
+                    offset: Vec3::ZERO,
+                    enabled: true,
                 },
                 Transform::from_translation(feet + Vec3::Y * HALF.y),
                 Visibility::Visible,
@@ -141,29 +155,40 @@ fn spawn_targets(
 
 fn apply_hits(
     mut commands: Commands,
-    mut hits: MessageReader<TargetHit>,
-    mut targets: Query<(&mut Target, &mut Visibility, &Transform)>,
+    mut hits: MessageReader<Damage>,
+    mut targets: Query<(&mut Target, &mut Hitbox, &mut Visibility, &Transform)>,
     look: Res<ChunkLook>,
 ) {
     for hit in hits.read() {
-        let Ok((mut target, mut visibility, transform)) = targets.get_mut(hit.target) else {
+        // Not a dummy (an enemy, say): someone else handles it.
+        let Ok((mut target, mut hitbox, mut visibility, transform)) = targets.get_mut(hit.target)
+        else {
             continue;
         };
-        if !target.alive() {
+        if target.dead_for.is_some() {
             continue;
         }
-        target.health -= hit.damage;
+        target.health -= hit.amount;
         target.flash = FLASH_TIME;
         if target.health <= 0.0 {
             target.dead_for = Some(0.0);
+            hitbox.enabled = false;
             *visibility = Visibility::Hidden;
-            burst(&mut commands, &look, transform.translation, hit.direction);
+            let floor = transform.translation.y - HALF.y;
+            burst(
+                &mut commands,
+                &look,
+                transform.translation,
+                floor,
+                hit.direction,
+            );
         }
     }
 }
 
-/// Throw chunks out from `centre`, mostly along the shot and upwards.
-fn burst(commands: &mut Commands, look: &ChunkLook, centre: Vec3, direction: Vec3) {
+/// Throw chunks out from `centre`, mostly along the shot and upwards. They
+/// bounce on a floor at height `floor`.
+pub fn burst(commands: &mut Commands, look: &ChunkLook, centre: Vec3, floor: f32, direction: Vec3) {
     let push = Vec3::new(direction.x, 0.0, direction.z).normalize_or_zero();
     for k in 0..CHUNKS {
         // Spread the chunks evenly around a circle, each a little different.
@@ -175,7 +200,7 @@ fn burst(commands: &mut Commands, look: &ChunkLook, centre: Vec3, direction: Vec
             Chunk {
                 velocity,
                 life: CHUNK_LIFE,
-                floor: centre.y - HALF.y,
+                floor,
             },
             Mesh3d(look.mesh.clone()),
             MeshMaterial3d(look.material.clone()),
@@ -185,8 +210,8 @@ fn burst(commands: &mut Commands, look: &ChunkLook, centre: Vec3, direction: Vec
     }
 }
 
-fn respawn(time: Res<Time>, mut targets: Query<(&mut Target, &mut Visibility)>) {
-    for (mut target, mut visibility) in &mut targets {
+fn respawn(time: Res<Time>, mut targets: Query<(&mut Target, &mut Hitbox, &mut Visibility)>) {
+    for (mut target, mut hitbox, mut visibility) in &mut targets {
         let Some(dead_for) = target.dead_for else {
             continue;
         };
@@ -194,6 +219,7 @@ fn respawn(time: Res<Time>, mut targets: Query<(&mut Target, &mut Visibility)>) 
         if dead_for >= RESPAWN_TIME {
             target.dead_for = None;
             target.health = HEALTH;
+            hitbox.enabled = true;
             *visibility = Visibility::Visible;
         } else {
             target.dead_for = Some(dead_for);
