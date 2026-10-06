@@ -1,9 +1,10 @@
 //! The player's health: taking hits, a red flash, slowly healing when left
-//! alone, and dying (back to the spawn with full health).
+//! alone, and dying. The run's heart rate sets the maximum (see `heart.rs`);
+//! dying ends the run (see `run.rs`).
 
 use bevy::prelude::*;
 
-use crate::player::{MovementTick, RespawnPlayer};
+use crate::player::MovementTick;
 use crate::sfx::{self, Sounds};
 
 pub struct HealthPlugin;
@@ -12,21 +13,21 @@ impl Plugin for HealthPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayerHealth>()
             .add_message::<PlayerHit>()
+            .add_message::<PlayerDied>()
             .add_systems(Startup, spawn_hud)
             .add_systems(FixedUpdate, take_hits.after(MovementTick))
             .add_systems(Update, update_hud);
     }
 }
 
-const MAX_HEALTH: f32 = 100.0;
 /// Seconds without being hit before health starts coming back...
 const REGEN_DELAY: f32 = 4.0;
 /// ...at this many points per second.
 const REGEN_RATE: f32 = 10.0;
 /// Seconds the red flash lasts after a hit.
 const HURT_FLASH: f32 = 0.35;
-/// Seconds "YOU DIED" stays up.
-const DEATH_MESSAGE: f32 = 2.5;
+/// Below this share of maximum health the number turns red.
+const LOW: f32 = 0.35;
 
 /// Damage to the player, from an enemy shot (or anything else).
 #[derive(Message, Clone, Copy)]
@@ -34,25 +35,40 @@ pub struct PlayerHit {
     pub damage: f32,
 }
 
+/// The player's health ran out. Sent once per death.
+#[derive(Message, Clone, Copy)]
+pub struct PlayerDied;
+
 #[derive(Resource)]
 pub struct PlayerHealth {
     pub current: f32,
+    pub max: f32,
+    /// Out of health and waiting to be revived (or for a new run).
+    dead: bool,
     /// Seconds since the last hit.
     since_hit: f32,
     /// Seconds of red flash left.
     hurt: f32,
-    /// Seconds of "YOU DIED" left.
-    died: f32,
 }
 
 impl Default for PlayerHealth {
     fn default() -> Self {
         Self {
-            current: MAX_HEALTH,
+            current: 100.0,
+            max: 100.0,
+            dead: false,
             since_hit: 0.0,
             hurt: 0.0,
-            died: 0.0,
         }
+    }
+}
+
+impl PlayerHealth {
+    /// Back on your feet with `health`.
+    pub fn revive(&mut self, health: f32) {
+        self.current = health.min(self.max);
+        self.dead = false;
+        self.since_hit = 0.0;
     }
 }
 
@@ -62,11 +78,14 @@ fn take_hits(
     sounds: Option<Res<Sounds>>,
     mut health: ResMut<PlayerHealth>,
     mut hits: MessageReader<PlayerHit>,
-    mut respawn: MessageWriter<RespawnPlayer>,
+    mut died: MessageWriter<PlayerDied>,
 ) {
     let dt = time.delta_secs();
     health.since_hit += dt;
     let damage: f32 = hits.read().map(|hit| hit.damage).sum();
+    if health.dead {
+        return;
+    }
     if damage > 0.0 {
         health.current -= damage;
         health.since_hit = 0.0;
@@ -76,11 +95,11 @@ fn take_hits(
         }
     }
     if health.current <= 0.0 {
-        respawn.write(RespawnPlayer);
-        health.current = MAX_HEALTH;
-        health.died = DEATH_MESSAGE;
+        health.current = 0.0;
+        health.dead = true;
+        died.write(PlayerDied);
     } else if health.since_hit > REGEN_DELAY {
-        health.current = (health.current + REGEN_RATE * dt).min(MAX_HEALTH);
+        health.current = (health.current + REGEN_RATE * dt).min(health.max);
     }
 }
 
@@ -89,9 +108,6 @@ struct HealthText;
 
 #[derive(Component)]
 struct HurtFlash;
-
-#[derive(Component)]
-struct DeathText;
 
 fn spawn_hud(mut commands: Commands) {
     commands.spawn((
@@ -119,25 +135,6 @@ fn spawn_hud(mut commands: Commands) {
         },
         BackgroundColor(Color::NONE),
     ));
-    commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            width: percent(100),
-            height: percent(100),
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            ..default()
-        })
-        .with_child((
-            DeathText,
-            Text::new("YOU DIED"),
-            TextFont {
-                font_size: FontSize::Px(72.0),
-                ..default()
-            },
-            TextColor(Color::srgb(0.75, 0.05, 0.03)),
-            Visibility::Hidden,
-        ));
 }
 
 fn update_hud(
@@ -145,23 +142,18 @@ fn update_hud(
     mut health: ResMut<PlayerHealth>,
     text: Single<(&mut Text, &mut TextColor), With<HealthText>>,
     mut flash: Single<&mut BackgroundColor, With<HurtFlash>>,
-    mut death: Single<&mut Visibility, With<DeathText>>,
 ) {
-    let dt = time.delta_secs();
-    health.hurt = (health.hurt - dt).max(0.0);
-    health.died = (health.died - dt).max(0.0);
-
+    health.hurt = (health.hurt - time.delta_secs()).max(0.0);
     let (mut text, mut colour) = text.into_inner();
-    text.0 = format!("HP {:3.0}", health.current.max(0.0).ceil());
-    colour.0 = if health.current < 35.0 {
+    text.0 = format!(
+        "HP {:3.0}/{:.0}",
+        health.current.max(0.0).ceil(),
+        health.max
+    );
+    colour.0 = if health.current < health.max * LOW {
         Color::srgb(0.95, 0.2, 0.15)
     } else {
         Color::srgb(0.9, 0.85, 0.8)
     };
     flash.0 = Color::srgba(0.7, 0.0, 0.0, (health.hurt / HURT_FLASH) * 0.45);
-    **death = if health.died > 0.0 {
-        Visibility::Inherited
-    } else {
-        Visibility::Hidden
-    };
 }

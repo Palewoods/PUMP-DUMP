@@ -2,7 +2,29 @@
 
 A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). You play a zombie gunslinger in a trenchcoat and fedora, hunted by humans with rifles. Movement is always fast: dash, slide, slam, wall jump, grapple and rocket jump your way around while you take them apart with a machete, a revolver, a double-barrel shotgun, a tommy gun and a rocket launcher.
 
+Being dead, your heart doesn't beat on its own: you pull it out of your chest and squeeze it. Pick a faster heart rate at the start of a run and you'll be squeezing more often, but you'll hit harder, move faster and take more punishment.
+
 Right now it's one test map with a squad of hunters and a few practice dummies.
+
+## Your heart
+
+At the start of every run you pick a heart rate. Your heart holds a measure of blood that drains away; press **Q** to pull it out (your weapons go away) and **fire** to squeeze it: each squeeze is one beat, a quarter of a full heart. Press Q again to get your weapon back. Let it run dry and you **flatline**: the screen goes dark and you lose health until you beat it again.
+
+| Heart rate | BPM | A full heart lasts | Damage | Accuracy | Health | Speed | Reload |
+|---|---|---|---|---|---|---|---|
+| 1 Dormant | 30 | 40 s | x1.0 | normal | 100 | x1.0 | normal |
+| 2 Steady | 60 | 25 s | x1.15 | +10% | 125 | x1.05 | 10% faster |
+| 3 Quick | 90 | 15 s | x1.3 | +20% | 150 | x1.1 | 20% faster |
+| 4 Pounding | 130 | 10 s | x1.5 | +30% | 175 | x1.15 | 30% faster |
+| 5 Racing | 180 | 6 s | x1.75 | +40% | 200 | x1.2 | 40% faster |
+
+At **Racing** you also pick a perk:
+
+- **Bloodlust:** every kill heals you.
+- **Pulse:** every squeeze of your heart blasts everything around you.
+- **Second Heart:** the first time you die, you get back up.
+
+Dying ends the run: back to the heart rate screen.
 
 ## Movement
 
@@ -38,7 +60,7 @@ Human hunters in field jackets, with caps or helmets and rifles. They move with 
 - Once one sees you, it hunts you: closes in, keeps its distance and strafes, and goes looking where it last saw you.
 - Its rifle muzzle glows brighter and brighter just before it fires a slow glowing slug: dodge it, or dash through it. Each hit takes 15 of your 100 health.
 - Killed hunters burst apart and come back at their post 10 seconds later.
-- You heal slowly after a few seconds without being hit. At zero health you're back at the spawn.
+- You heal slowly after a few seconds without being hit. At zero health the run is over.
 
 ## Look
 
@@ -46,7 +68,7 @@ The world renders at 270 pixels tall and is scaled up with hard pixel edges, a r
 
 ## Tuning
 
-Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pumpdump/assets/movement.ron), and every weapon number in [`crates/pumpdump/assets/weapons.ron`](crates/pumpdump/assets/weapons.ron). Edit either while the game is running: they reload when you save.
+Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pumpdump/assets/movement.ron), every weapon number in [`crates/pumpdump/assets/weapons.ron`](crates/pumpdump/assets/weapons.ron), and the heart rates and perks in [`crates/pumpdump/assets/heart.ron`](crates/pumpdump/assets/heart.ron). Edit any of them while the game is running: they reload when you save.
 
 ## Controls
 
@@ -54,7 +76,8 @@ Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pu
 |---|---|---|
 | Move | WASD | Left stick |
 | Look | Mouse | Right stick |
-| Fire | Left mouse | RT |
+| Fire (with the heart out: squeeze it) | Left mouse | RT |
+| Pull out / put away your heart | Q | D-pad down |
 | Machete slash | F | R3 |
 | Pick weapon | 1–5, mouse wheel | Y (next) |
 | Reload | R | X |

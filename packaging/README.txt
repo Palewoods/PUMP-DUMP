@@ -6,6 +6,10 @@ trenchcoat and fedora, hunted by humans with rifles. Dash, slide, slam, wall
 jump, grapple and rocket jump around, and take them apart with a machete,
 revolver, shotgun, tommy gun and rocket launcher.
 
+Your heart doesn't beat on its own: you pull it out and squeeze it. Pick how
+fast it beats at the start of each run. Faster means more squeezing, but more
+damage, accuracy, health, speed and reload speed, and the fastest gets a perk.
+
 Double-click PUMP&DUMP.exe to play. Keep the "assets" folder next to it.
 
 
@@ -15,6 +19,8 @@ CONTROLS
 Move                 WASD                    Left stick
 Look                 Mouse                   Right stick
 Fire                 Left mouse              RT
+Heart out / away     Q                       D-pad down
+  (with the heart out, Fire squeezes it)
 Machete slash        F                       R3
 Pick weapon          1-5, mouse wheel        Y (next)
 Reload               R                       X
@@ -40,6 +46,9 @@ WEAPONS
 
 TIPS
 ----
+- Keep an eye on the heart bar at the bottom. Before it runs dry, press Q,
+  squeeze a few times, and press Q again. If it empties you flatline and
+  lose health until you beat it again.
 - Hunters' rifle muzzles glow brighter just before they fire. Their glowing
   shots are slow enough to dodge, and dashing makes you untouchable.
   You heal after a few seconds out of the line of fire.
@@ -59,9 +68,10 @@ TIPS
 
 TUNING
 ------
-Every movement number is in assets\movement.ron, and every weapon number in
-assets\weapons.ron. Open one in a text editor while the game is running,
-change a value and save: the game picks it up straight away.
+Every movement number is in assets\movement.ron, every weapon number in
+assets\weapons.ron, and the heart rates and perks in assets\heart.ron. Open
+one in a text editor while the game is running, change a value and save: the
+game picks it up straight away.
 
 
 SOURCE CODE AND LICENSE

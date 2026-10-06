@@ -1,0 +1,37 @@
+// PUMP&DUMP heart. You're a zombie: your heart doesn't beat by itself. You pick
+// a heart rate at the start of each run; the faster it is, the more often you
+// have to pull the heart out and squeeze it, and the stronger you are.
+//
+// The game reloads this file when you save it (the run's tier keeps its place
+// in the list).
+(
+    // One squeeze refills this much of the heart (1.0 = full).
+    squeeze: 0.25,
+    // Health lost per second while the heart is empty (flatlining).
+    flatline_damage: 10.0,
+    // Below this much blood, the game warns you to beat your heart.
+    warn_below: 0.3,
+
+    // The heart rates to choose from, slowest first. The last one also gets a
+    // perk. `lasts` is how long a full heart keeps you going, in seconds.
+    // `damage`, `speed`: multipliers. `spread`: multiplier on weapon spread
+    // (lower = more accurate). `reload`: multiplier on reload times (lower =
+    // faster). `health`: your maximum health.
+    tiers: [
+        (name: "DORMANT", bpm: 30, lasts: 40.0, damage: 1.0, spread: 1.0, health: 100.0, speed: 1.0, reload: 1.0),
+        (name: "STEADY", bpm: 60, lasts: 25.0, damage: 1.15, spread: 0.9, health: 125.0, speed: 1.05, reload: 0.9),
+        (name: "QUICK", bpm: 90, lasts: 15.0, damage: 1.3, spread: 0.8, health: 150.0, speed: 1.1, reload: 0.8),
+        (name: "POUNDING", bpm: 130, lasts: 10.0, damage: 1.5, spread: 0.7, health: 175.0, speed: 1.15, reload: 0.7),
+        (name: "RACING", bpm: 180, lasts: 6.0, damage: 1.75, spread: 0.6, health: 200.0, speed: 1.2, reload: 0.6),
+    ],
+
+    // Perks (top heart rate only).
+    // Bloodlust: health back per kill.
+    bloodlust_heal: 20.0,
+    // Pulse: each squeeze hits everything within this radius for this much.
+    pulse_damage: 45.0,
+    pulse_radius: 320.0,
+    // Second Heart: the first death of a run instead leaves you on this
+    // fraction of your health.
+    second_heart_health: 0.5,
+)

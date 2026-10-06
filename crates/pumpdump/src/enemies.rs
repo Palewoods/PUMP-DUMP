@@ -29,12 +29,24 @@ use crate::tuning::{Tuning, TuningAsset};
 
 pub struct EnemiesPlugin;
 
+/// An enemy died.
+#[derive(Message, Clone, Copy)]
+pub struct EnemyKilled;
+
+/// Put every enemy back at its post, alive and unaware (a new run).
+#[derive(Message, Clone, Copy)]
+pub struct ResetEnemies;
+
 impl Plugin for EnemiesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, (make_shot_look, spawn_enemies))
+        app.add_message::<EnemyKilled>()
+            .add_message::<ResetEnemies>()
+            .add_systems(Startup, (make_shot_look, spawn_enemies))
             .add_systems(
                 FixedUpdate,
-                (take_damage, think, fly_shots).chain().after(MovementTick),
+                (reset, take_damage, think, fly_shots)
+                    .chain()
+                    .after(MovementTick),
             )
             .add_systems(Update, (place_enemies, show_warnings));
     }
@@ -246,6 +258,7 @@ fn take_damage(
     chunks: Res<ChunkLook>,
     sounds: Option<Res<Sounds>>,
     mut refill: MessageWriter<RefillDash>,
+    mut killed: MessageWriter<EnemyKilled>,
 ) {
     for hit in damage.read() {
         let Ok((mut enemy, mut hitbox, mut visibility)) = enemies.get_mut(hit.target) else {
@@ -276,6 +289,7 @@ fn take_damage(
             }
             // Every kill hands back a dash charge, to keep you moving.
             refill.write(RefillDash);
+            killed.write(EnemyKilled);
         }
     }
 }
@@ -421,6 +435,26 @@ fn think(
                 enemy.windup = Some(0.0);
             }
         }
+    }
+}
+
+/// A new run: everyone back at their post, and no shots left in the air.
+fn reset(
+    mut commands: Commands,
+    mut resets: MessageReader<ResetEnemies>,
+    mut enemies: Query<(&mut Enemy, &mut Hitbox, &mut Visibility)>,
+    shots: Query<Entity, With<Shot>>,
+) {
+    if resets.read().count() == 0 {
+        return;
+    }
+    for (mut enemy, mut hitbox, mut visibility) in &mut enemies {
+        *enemy = Enemy::new(enemy.post, enemy.index);
+        hitbox.enabled = true;
+        *visibility = Visibility::Inherited;
+    }
+    for shot in &shots {
+        commands.entity(shot).despawn();
     }
 }
 

@@ -37,8 +37,11 @@ pub enum Action {
     WallHang,
     /// Held: slide on the ground. Pressed in the air: ground slam.
     Slide,
-    /// Fire the weapon: one shot per press, or held for automatic weapons.
+    /// Fire the weapon: one shot per press, or held for automatic weapons. With
+    /// the heart in hand, squeeze it.
     Fire,
+    /// Pull your heart out of your chest, or put it back.
+    Heart,
     /// A quick machete slash, whatever weapon is out.
     Melee,
     /// Pick a weapon by slot (1 machete, 2 revolver, 3 shotgun, 4 tommy gun,
@@ -78,6 +81,8 @@ pub fn default_bindings() -> InputMap<Action> {
         .with(Action::Slide, GamepadButton::East)
         .with(Action::Fire, MouseButton::Left)
         .with(Action::Fire, GamepadButton::RightTrigger2)
+        .with(Action::Heart, KeyCode::KeyQ)
+        .with(Action::Heart, GamepadButton::DPadDown)
         .with(Action::Melee, KeyCode::KeyF)
         .with(Action::Melee, GamepadButton::RightThumb)
         .with(Action::Weapon1, KeyCode::Digit1)

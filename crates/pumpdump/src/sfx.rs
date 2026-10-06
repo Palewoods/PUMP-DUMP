@@ -54,6 +54,10 @@ pub struct Sounds {
     pub swish: Handle<Sfx>,
     /// ...and into something.
     pub chop: Handle<Sfx>,
+    /// Your heart: lub-dub.
+    pub heartbeat: Handle<Sfx>,
+    /// Squeezing your heart.
+    pub squelch: Handle<Sfx>,
 }
 
 /// Play a sound once.
@@ -138,6 +142,8 @@ fn make_sounds(mut commands: Commands, mut sfx: ResMut<Assets<Sfx>>) {
         boom: add(gunshot(1.4, 0.3, 0.35, 45.0, 3.5, 0x00B0_0000)),
         swish: add(whoosh()),
         chop: add(click(0.1, 300.0, 0.8, 23)),
+        heartbeat: add(heartbeat()),
+        squelch: add(squelch()),
     });
 }
 
@@ -252,6 +258,36 @@ fn gunshot(seconds: f32, crack: f32, body: f32, thump: f32, decay: f32, seed: u3
         .collect()
 }
 
+/// A heartbeat: two deep, soft thumps, the second a little lower and quieter.
+fn heartbeat() -> Vec<f32> {
+    let thump = |t: f32, pitch: f32| {
+        if t < 0.0 {
+            0.0
+        } else {
+            (TAU * pitch * t).sin() * (t / 0.01).min(1.0) * (-t * 22.0).exp()
+        }
+    };
+    samples(0.45)
+        .map(|t| ((thump(t, 55.0) + 0.75 * thump(t - 0.17, 45.0)) * 0.9).clamp(-1.0, 1.0))
+        .collect()
+}
+
+/// A wet squeeze: a gloopy slosh of filtered noise over a low thump.
+fn squelch() -> Vec<f32> {
+    let mut noise = Noise(0x5EE_D5EE);
+    let mut low = 0.0;
+    samples(0.3)
+        .map(|t| {
+            low += 0.08 * (noise.next() - low);
+            // The slosh wobbles in volume, like liquid moving.
+            let wobble = 0.6 + 0.4 * (TAU * 28.0 * t).sin();
+            let slosh = low * 3.0 * wobble * (-t * 12.0).exp();
+            let thump = (TAU * 70.0 * t).sin() * (-t * 25.0).exp();
+            ((slosh + thump * 0.6) * 0.9).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
 /// A short mechanical click: a noise tick plus a quickly fading ring at `pitch`.
 fn click(seconds: f32, pitch: f32, volume: f32, seed: u32) -> Vec<f32> {
     let mut noise = Noise(0x1234_5678 ^ seed.wrapping_mul(0x0101_0101));
@@ -279,6 +315,8 @@ mod tests {
             hurt(),
             gunshot(0.6, 0.9, 0.3, 110.0, 9.0, 1),
             gunshot(1.4, 0.3, 0.35, 45.0, 3.5, 2),
+            heartbeat(),
+            squelch(),
         ] {
             assert!(sound.iter().all(|s| s.abs() <= 1.0));
             let tail = &sound[sound.len() * 9 / 10..];

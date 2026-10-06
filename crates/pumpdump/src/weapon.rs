@@ -22,6 +22,7 @@ use pumpdump_movement::CollisionWorld;
 use serde::Deserialize;
 
 use crate::character;
+use crate::heart::{Boosts, Heart};
 use crate::input::{self, Action};
 use crate::map::MapCollision;
 use crate::player::{self, PlayerCamera};
@@ -388,6 +389,8 @@ fn tick_weapons(
     camera: Single<(&Transform, &ActionState<Action>), With<PlayerCamera>>,
     map: Res<MapCollision>,
     targets: Query<(Entity, &Transform, &Hitbox)>,
+    boosts: Res<Boosts>,
+    heart: Res<Heart>,
     mut arsenal: ResMut<Arsenal>,
     mut fx: ResMut<GunFx>,
     mut hits: MessageWriter<Damage>,
@@ -438,6 +441,10 @@ fn tick_weapons(
     arsenal.since_swing += dt;
     arsenal.melee_cooldown = (arsenal.melee_cooldown - dt).max(0.0);
     let ready = arsenal.drawn_for >= SWITCH_TIME;
+    // Hands full of heart: no shooting, no slashing (see `heart.rs`).
+    if heart.held {
+        return;
+    }
 
     // The click that captures the mouse shouldn't also fire.
     let aiming = input::cursor_captured(&cursor);
@@ -451,9 +458,13 @@ fn tick_weapons(
         arsenal.melee_cooldown = tuning.machete.interval;
         arsenal.since_swing = 0.0;
         play!(swish);
+        let machete = MeleeTuning {
+            damage: tuning.machete.damage * boosts.damage,
+            ..tuning.machete.clone()
+        };
         if slash_hits(
             eye,
-            &tuning.machete,
+            &machete,
             &targets,
             &map,
             &mut hits,
@@ -466,9 +477,10 @@ fn tick_weapons(
     }
 
     let kind = arsenal.current;
-    let Some(rules) = tuning.rules(kind) else {
+    let Some(mut rules) = tuning.rules(kind) else {
         return;
     };
+    rules.reload_time *= boosts.reload;
     let automatic = tuning.hitscan(kind).is_some_and(|g| g.automatic);
     let trigger = ready && !arsenal.swinging() && if automatic { held } else { pressed };
     let reload = actions.just_pressed(&Action::Reload);
@@ -495,12 +507,17 @@ fn tick_weapons(
     };
 
     if kind == WeaponKind::Launcher {
+        let launcher = LauncherTuning {
+            direct_damage: tuning.launcher.direct_damage * boosts.damage,
+            splash_damage: tuning.launcher.splash_damage * boosts.damage,
+            ..tuning.launcher.clone()
+        };
         rockets::launch(
             &mut commands,
             &rocket_look,
             eye.transform_point(TRACER_START * Vec3::new(1.0, 1.0, 0.6)),
             *eye.forward(),
-            &tuning.launcher,
+            &launcher,
         );
         play!(launch);
         return;
@@ -508,6 +525,12 @@ fn tick_weapons(
 
     let Some(gun) = tuning.hitscan(kind) else {
         return;
+    };
+    // The heart rate's boosts: harder hits, tighter spread.
+    let gun = &GunTuning {
+        damage: gun.damage * boosts.damage,
+        spread_deg: gun.spread_deg * boosts.spread,
+        ..gun.clone()
     };
     match kind {
         WeaponKind::Revolver => play!(revolver),

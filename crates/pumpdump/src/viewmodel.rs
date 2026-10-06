@@ -1,4 +1,4 @@
-//! The first-person weapons: five models held in the zombie's rotting hands,
+//! The first-person weapons (and the heart): models held in the zombie's rotting hands,
 //! drawn by their own camera on their own render layer so they never poke into
 //! walls. All boxes (the character kit's unit cube, stretched), to suit the
 //! pixel look.
@@ -13,6 +13,7 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::character::{CharacterKit, SKIN, Style, limb, slab};
+use crate::heart::Heart;
 use crate::player::{PlayerCamera, PlayerStatus, ThirdPerson};
 use crate::retro::{RetroScreen, VIEW_MODEL_LAYER};
 use crate::weapon::{
@@ -25,7 +26,7 @@ impl Plugin for ViewModelPlugin {
     fn build(&self, app: &mut App) {
         // After Startup, so the player's camera exists to attach the weapons to.
         app.add_systems(PostStartup, spawn_view_models)
-            .add_systems(Update, animate);
+            .add_systems(Update, (animate, animate_heart));
     }
 }
 
@@ -49,6 +50,23 @@ struct WeaponModel(WeaponKind);
 
 #[derive(Component)]
 struct MuzzleFlash;
+
+/// The heart in your hand, shown instead of a weapon while you hold it.
+#[derive(Component)]
+struct HeartModel;
+
+/// The heart itself (not the hand): throbs with the beat, squashes when squeezed.
+#[derive(Component)]
+struct HeartMuscle;
+
+/// The fingers wrapped round the front of the heart: close in on a squeeze.
+#[derive(Component)]
+struct HeartFingers;
+
+/// Where the heart is held, relative to the weapons' resting place: low, left
+/// of the middle, out of the way of the crosshair. And how big it's drawn.
+const HEART_AT: Vec3 = Vec3::new(-10.0, 3.5, 0.0);
+const HEART_SCALE: f32 = 0.55;
 
 /// Lights up the surroundings for a moment on each shot.
 #[derive(Component)]
@@ -263,6 +281,20 @@ fn spawn_view_models(
         ..default()
     });
     let flash_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
+    let mut wet = |color: Color, roughness: f32| {
+        materials.add(StandardMaterial {
+            base_color: color,
+            perceptual_roughness: roughness,
+            reflectance: 0.4,
+            ..default()
+        })
+    };
+    let heart_stuff = HeartStuff {
+        muscle: wet(Color::srgb(0.5, 0.04, 0.06), 0.35),
+        dark: wet(Color::srgb(0.32, 0.03, 0.05), 0.45),
+        artery: wet(Color::srgb(0.55, 0.12, 0.2), 0.4),
+        vein: wet(Color::srgb(0.2, 0.08, 0.25), 0.5),
+    };
 
     commands.entity(*eye).with_children(|eye| {
         // Draws only the weapons' layer, on top of the world camera's picture.
@@ -319,6 +351,7 @@ fn spawn_view_models(
                     }
                 });
             }
+            spawn_heart(view, &kit, &stuff, &heart_stuff, &layer);
             view.spawn((MuzzleFlash, Transform::default(), Visibility::Hidden))
                 .with_children(|flash| {
                     // Two crossed slabs make a rough star.
@@ -339,6 +372,119 @@ fn spawn_view_models(
     });
 }
 
+/// What the heart is made of.
+struct HeartStuff {
+    muscle: Handle<StandardMaterial>,
+    dark: Handle<StandardMaterial>,
+    artery: Handle<StandardMaterial>,
+    vein: Handle<StandardMaterial>,
+}
+
+/// The heart, cupped in the left hand with the fingers round its front.
+fn spawn_heart(
+    view: &mut ChildSpawnerCommands,
+    kit: &CharacterKit,
+    m: &Stuff,
+    h: &HeartStuff,
+    layer: &RenderLayers,
+) {
+    let v = Vec3::new;
+    let part = |material: &Handle<StandardMaterial>, transform: Transform| {
+        (
+            Mesh3d(kit.cube()),
+            MeshMaterial3d(material.clone()),
+            transform,
+            layer.clone(),
+            NotShadowCaster,
+        )
+    };
+    view.spawn((
+        HeartModel,
+        Transform::from_translation(HEART_AT).with_scale(Vec3::splat(HEART_SCALE)),
+        Visibility::Hidden,
+    ))
+    .with_children(|held| {
+        held.spawn((HeartMuscle, Transform::default(), Visibility::Inherited))
+            .with_children(|heart| {
+                // The muscle, two lobes on top, a pointed bottom.
+                heart.spawn(part(&h.muscle, slab(v(0.0, 0.0, 0.0), v(5.5, 6.5, 5.0))));
+                heart.spawn(part(&h.dark, slab(v(-1.7, 3.4, 0.4), v(2.8, 2.6, 3.0))));
+                heart.spawn(part(&h.dark, slab(v(1.6, 3.2, 0.7), v(2.6, 2.4, 2.8))));
+                heart.spawn(part(
+                    &h.muscle,
+                    slab(v(0.5, -3.6, 0.0), v(3.2, 2.2, 3.2))
+                        .with_rotation(Quat::from_rotation_z(0.3)),
+                ));
+                // The big vessels out of the top, and one across the front.
+                heart.spawn(part(
+                    &h.artery,
+                    limb(v(0.6, 3.4, 0.0), v(1.0, 7.6, -0.6), Vec2::splat(1.7)),
+                ));
+                heart.spawn(part(
+                    &h.artery,
+                    limb(v(1.0, 7.2, -0.6), v(2.9, 8.3, 0.2), Vec2::splat(1.0)),
+                ));
+                heart.spawn(part(
+                    &h.vein,
+                    limb(v(-1.8, 3.6, 0.2), v(-2.8, 7.0, 1.2), Vec2::splat(1.3)),
+                ));
+                heart.spawn(part(&h.vein, slab(v(0.6, 0.6, -2.6), v(0.5, 4.5, 0.4))));
+            });
+        // The hand: palm under, thumb up the side, sleeve back out of view.
+        held.spawn(part(&m.skin, slab(v(0.0, -4.4, 0.5), v(6.2, 1.8, 5.6))));
+        held.spawn(part(&m.skin, slab(v(-3.4, -0.5, 0.6), v(1.1, 4.0, 1.3))));
+        held.spawn(part(&m.rot, slab(v(0.0, -5.4, 0.8), v(3.0, 0.4, 3.0))));
+        held.spawn(part(
+            &m.coat,
+            limb(v(0.0, -5.4, 2.5), v(-6.0, -11.0, 16.0), Vec2::splat(5.4)),
+        ));
+        held.spawn((HeartFingers, Transform::default(), Visibility::Inherited))
+            .with_children(|fingers| {
+                for x in [-2.4, -0.8, 0.8, 2.4] {
+                    fingers.spawn(part(&m.skin, slab(v(x, -1.6, -2.9), v(1.0, 4.6, 1.0))));
+                    fingers.spawn(part(&m.rot, slab(v(x, 0.9, -2.7), v(0.8, 0.8, 0.8))));
+                }
+            });
+    });
+}
+
+/// Show the heart while it's held. It throbs with the heart rate and squashes
+/// when squeezed, the fingers closing in.
+fn animate_heart(
+    time: Res<Time>,
+    heart: Res<Heart>,
+    mut model: Single<&mut Visibility, With<HeartModel>>,
+    mut muscle: Single<&mut Transform, (With<HeartMuscle>, Without<HeartFingers>)>,
+    mut fingers: Single<&mut Transform, (With<HeartFingers>, Without<HeartMuscle>)>,
+) {
+    **model = if heart.held {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    // A sharp throb at the start of each beat, while there's blood to beat.
+    let beat = (time.elapsed_secs() * heart.bpm / 60.0).fract();
+    let throb = if heart.flatlined() {
+        0.0
+    } else {
+        (1.0 - beat * 5.0).max(0.0)
+    };
+    // The squeeze: in and back out over a fraction of a second.
+    const SQUEEZE_TIME: f32 = 0.18;
+    let squash = if heart.since_squeeze < SQUEEZE_TIME {
+        (heart.since_squeeze / SQUEEZE_TIME * PI).sin()
+    } else {
+        0.0
+    };
+    let swell = 1.0 + 0.07 * throb;
+    muscle.scale = Vec3::new(
+        swell * (1.0 - 0.25 * squash),
+        swell * (1.0 - 0.12 * squash),
+        swell * (1.0 - 0.25 * squash),
+    );
+    fingers.translation = Vec3::new(0.0, 0.0, 0.8 * squash);
+}
+
 /// 0 -> 1 with a smooth start and end.
 fn ease(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -355,6 +501,7 @@ fn animate(
     tunings: Res<Assets<WeaponsAsset>>,
     status: Res<PlayerStatus>,
     third_person: Res<ThirdPerson>,
+    heart: Res<Heart>,
     mut fx: ResMut<GunFx>,
     mut bob_phase: Local<f32>,
     view: Single<
@@ -424,7 +571,8 @@ fn animate(
     );
 
     for (model, mut transform, mut visibility) in &mut models {
-        *visibility = if model.0 == shown {
+        // With the heart in hand, every weapon is put away.
+        *visibility = if model.0 == shown && !heart.held {
             Visibility::Inherited
         } else {
             Visibility::Hidden
@@ -453,7 +601,7 @@ fn animate(
         }
     }
 
-    let flashing = fx.flash > 0.0 && !swinging;
+    let flashing = fx.flash > 0.0 && !swinging && !heart.held;
     let (offset, scale, muzzle) = placement(arsenal.current);
     let (mut flash_at, mut flash_shown) = flash.into_inner();
     flash_at.translation = offset + muzzle * scale;

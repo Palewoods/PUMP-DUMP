@@ -9,6 +9,7 @@ use leafwing_input_manager::prelude::*;
 use pumpdump_movement::{CollisionWorld, Grapple, MoveInput, MovementState, WallKind, step};
 
 use crate::character::{self, CharacterKit, Gait, Style};
+use crate::heart::Boosts;
 use crate::input::{self, Action, look};
 use crate::map::{MapCollision, SKY, SPAWN};
 use crate::retro::RetroScreen;
@@ -231,12 +232,15 @@ fn tick_movement(
     mut respawns: MessageReader<RespawnPlayer>,
     mut refills: MessageReader<RefillDash>,
     mut knockbacks: MessageReader<Knockback>,
+    boosts: Res<Boosts>,
     player: Single<(&mut Player, &ActionState<Action>)>,
 ) {
     // `let ... else` returns early if movement.ron hasn't finished loading.
     let Some(tuning) = tunings.get(&tuning.0) else {
         return;
     };
+    // The run's heart rate makes you faster (see `heart.rs`).
+    let tuning = &boosts.movement(tuning);
     let (mut player, actions) = player.into_inner();
 
     let wish = shape_stick(actions.clamped_axis_pair(&Action::Move), 1.0);
@@ -426,13 +430,13 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move   mouse look   left mouse fire   1-5 / wheel weapons   F machete   R reload   Space jump   Shift dash\n\
-                        Ctrl/C slide (in the air: slam)   E grapple (hold)   right mouse wall-hang   V third person   Backspace back to spawn   Esc free mouse\n\
-                        Controller: sticks   RT fire   Y next weapon   R3 machete   X reload   A jump   RB dash   B slide/slam   LB grapple   LT wall-hang\n\
+const CONTROLS: &str = "WASD move  mouse look  left mouse fire  1-5 / wheel weapons  F machete  R reload  Space jump  Shift dash\n\
+                        Q heart (fire squeezes it)  Ctrl/C slide (air: slam)  E grapple  right mouse wall-hang  V third person  Esc free mouse\n\
+                        Pad: RT fire  D-pad down heart  Y weapon  R3 machete  X reload  A jump  RB dash  B slide/slam  LB grapple\n\
                         Dash: untouchable while it lasts, 3 charges, every kill gives one back. Jump during a ground dash for a dash jump.\n\
                         Slide any time on the ground; slide-hop to build speed. Slam, then jump as you land to bounce high.\n\
                         Touch any wall in the air and jump to wall jump, as often as you like. Rocket at your feet + jump = rocket jump.\n\
-                        Edit assets/movement.ron and assets/weapons.ron while playing; they reload on save.";
+                        Edit assets/movement.ron, weapons.ron and heart.ron while playing; they reload on save.";
 
 fn update_hud(
     player: Single<&Player>,

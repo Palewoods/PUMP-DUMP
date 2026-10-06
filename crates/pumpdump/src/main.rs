@@ -16,11 +16,13 @@ mod character;
 mod dev;
 mod enemies;
 mod health;
+mod heart;
 mod input;
 mod map;
 mod player;
 mod retro;
 mod rockets;
+mod run;
 mod sfx;
 mod targets;
 mod tuning;
@@ -63,7 +65,8 @@ fn main() {
             abilities::AbilitiesPlugin,
             health::HealthPlugin,
             enemies::EnemiesPlugin,
-            dev::DevPlugin,
         ))
+        // Rust note: one `add_plugins` call takes at most 15 plugins at a time.
+        .add_plugins((heart::HeartPlugin, run::RunPlugin, dev::DevPlugin))
         .run();
 }

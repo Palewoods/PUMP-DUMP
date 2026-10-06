@@ -26,7 +26,8 @@ struct ScreenshotTo(PathBuf);
 // `static` that belongs to this one function.
 fn screenshot_then_exit(
     mut commands: Commands,
-    time: Res<Time>,
+    // Real time: game time stands still while the start menu is up.
+    time: Res<Time<Real>>,
     to: Res<ScreenshotTo>,
     mut taken: Local<bool>,
     mut exit: MessageWriter<AppExit>,
