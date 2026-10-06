@@ -64,6 +64,20 @@ impl Default for PlayerHealth {
 }
 
 impl PlayerHealth {
+    /// Lose health without being hit (flatlining): no flash or sound, but no
+    /// healing either while it goes on.
+    pub fn bleed(&mut self, amount: f32) {
+        self.current -= amount;
+        self.since_hit = 0.0;
+    }
+
+    /// Heal a little, if it's been long enough since the last hit or bleed.
+    fn regen(&mut self, dt: f32) {
+        if self.since_hit > REGEN_DELAY {
+            self.current = (self.current + REGEN_RATE * dt).min(self.max);
+        }
+    }
+
     /// Back on your feet with `health`.
     pub fn revive(&mut self, health: f32) {
         self.current = health.min(self.max);
@@ -98,8 +112,8 @@ fn take_hits(
         health.current = 0.0;
         health.dead = true;
         died.write(PlayerDied);
-    } else if health.since_hit > REGEN_DELAY {
-        health.current = (health.current + REGEN_RATE * dt).min(health.max);
+    } else {
+        health.regen(dt);
     }
 }
 
@@ -156,4 +170,48 @@ fn update_hud(
         Color::srgb(0.9, 0.85, 0.8)
     };
     flash.0 = Color::srgba(0.7, 0.0, 0.0, (health.hurt / HURT_FLASH) * 0.45);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DT: f32 = 1.0 / 60.0;
+
+    /// One tick as the game runs it: time passes, then healing.
+    fn tick(health: &mut PlayerHealth) {
+        health.since_hit += DT;
+        health.regen(DT);
+    }
+
+    #[test]
+    fn bleeding_drains_steadily_and_healing_never_cancels_it() {
+        let mut health = PlayerHealth::default();
+        // Ten seconds of flatlining at 4 a second, well past the regen delay.
+        for _ in 0..600 {
+            health.bleed(4.0 * DT);
+            tick(&mut health);
+        }
+        assert!((health.current - 60.0).abs() < 0.1, "{}", health.current);
+    }
+
+    #[test]
+    fn healing_comes_back_after_the_delay() {
+        let mut health = PlayerHealth::default();
+        health.bleed(50.0);
+        // Not yet...
+        for _ in 0..(REGEN_DELAY / DT) as usize - 1 {
+            tick(&mut health);
+        }
+        assert!((health.current - 50.0).abs() < 1e-3, "{}", health.current);
+        // ...then a point every tenth of a second.
+        for _ in 0..61 {
+            tick(&mut health);
+        }
+        assert!(
+            health.current > 59.0 && health.current <= 61.0,
+            "{}",
+            health.current
+        );
+    }
 }

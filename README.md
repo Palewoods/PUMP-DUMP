@@ -21,7 +21,7 @@ At the start of every run you pick a heart rate. Your heart holds a measure of b
 At **Racing** you also pick a perk:
 
 - **Bloodlust:** every kill heals you.
-- **Pulse:** every squeeze of your heart blasts everything around you.
+- **Pulse:** squeezing your heart when it needs it blasts everything close around you (at most every 2 seconds).
 - **Second Heart:** the first time you die, you get back up.
 
 Dying ends the run: back to the heart rate screen.

@@ -7,8 +7,9 @@
 (
     // One squeeze refills this much of the heart (1.0 = full).
     squeeze: 0.25,
-    // Health lost per second while the heart is empty (flatlining).
-    flatline_damage: 10.0,
+    // Health lost per second while the heart is empty (flatlining). A slow,
+    // steady bleed: you don't heal while it's going on.
+    flatline_damage: 4.0,
     // Below this much blood, the game warns you to beat your heart.
     warn_below: 0.3,
 
@@ -28,9 +29,12 @@
     // Perks (top heart rate only).
     // Bloodlust: health back per kill.
     bloodlust_heal: 20.0,
-    // Pulse: each squeeze hits everything within this radius for this much.
-    pulse_damage: 45.0,
-    pulse_radius: 320.0,
+    // Pulse: a squeeze that puts blood back (not one on a full heart) hits
+    // everything within this radius for this much (not boosted by the heart
+    // rate), at most once per cooldown.
+    pulse_damage: 20.0,
+    pulse_radius: 220.0,
+    pulse_cooldown: 2.0,
     // Second Heart: the first death of a run instead leaves you on this
     // fraction of your health.
     second_heart_health: 0.5,

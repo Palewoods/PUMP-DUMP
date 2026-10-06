@@ -61,6 +61,8 @@ pub struct HeartTuning {
     pub bloodlust_heal: f32,
     pub pulse_damage: f32,
     pub pulse_radius: f32,
+    /// Seconds before another squeeze can pulse.
+    pub pulse_cooldown: f32,
     pub second_heart_health: f32,
 }
 
@@ -149,8 +151,8 @@ impl Perk {
         match self {
             Perk::Bloodlust => format!("Every kill heals you {:.0}.", tuning.bloodlust_heal),
             Perk::Pulse => format!(
-                "Every squeeze of your heart blasts everything within {:.0} for {:.0}.",
-                tuning.pulse_radius, tuning.pulse_damage
+                "Squeezing your heart (when it needs it) blasts everything within {:.0} for {:.0}. Once every {:.0} s.",
+                tuning.pulse_radius, tuning.pulse_damage, tuning.pulse_cooldown
             ),
             Perk::SecondHeart => format!(
                 "The first time you die, you get back up with {:.0}% health.",
@@ -234,6 +236,8 @@ pub struct Heart {
     pub held: bool,
     /// Seconds since the last squeeze.
     pub since_squeeze: f32,
+    /// Seconds since the last Pulse shockwave.
+    pub since_pulse: f32,
     /// The run's heart rate, for the sound and the animation.
     pub bpm: f32,
 }
@@ -244,6 +248,7 @@ impl Default for Heart {
             blood: 1.0,
             held: false,
             since_squeeze: 10.0,
+            since_pulse: 10.0,
             bpm: 30.0,
         }
     }
@@ -255,10 +260,13 @@ impl Heart {
         self.blood = (self.blood - dt / lasts.max(0.01)).max(0.0);
     }
 
-    /// One squeeze: a beat's worth of blood back, never past full.
-    pub fn squeeze(&mut self, amount: f32) {
+    /// One squeeze: a beat's worth of blood back, never past full. Returns
+    /// whether it did any good (the heart wasn't already full).
+    pub fn squeeze(&mut self, amount: f32) -> bool {
+        let was = self.blood;
         self.blood = (self.blood + amount).min(1.0);
         self.since_squeeze = 0.0;
+        self.blood > was
     }
 
     pub fn flatlined(&self) -> bool {
@@ -301,7 +309,6 @@ fn tick_heart(
     handle: Res<HeartHandle>,
     tunings: Res<Assets<HeartAsset>>,
     run: Res<Run>,
-    boosts: Res<Boosts>,
     sounds: Option<Res<Sounds>>,
     look: Res<PulseLook>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
@@ -345,32 +352,29 @@ fn tick_heart(
 
     heart.drain(dt, tier.lasts);
     heart.since_squeeze += dt;
+    heart.since_pulse += dt;
     let squeeze = heart.held
         && arsenal.drawn_for > 0.15
         && input::cursor_captured(&cursor)
         && actions.just_pressed(&Action::Fire);
     if squeeze {
-        heart.squeeze(tuning.squeeze);
+        let pumped = heart.squeeze(tuning.squeeze);
         if let Some(sounds) = &sounds {
             sfx::play(&mut commands, &sounds.squelch);
         }
-        if run.perk == Some(Perk::Pulse) {
-            pulse(
-                &mut commands,
-                &look,
-                tuning,
-                &boosts,
-                &player,
-                &targets,
-                &mut hits,
-            );
+        // Pulse: only for a beat the heart needed (no spamming a full heart),
+        // and not more often than its cooldown.
+        if run.perk == Some(Perk::Pulse) && pumped && heart.since_pulse >= tuning.pulse_cooldown {
+            heart.since_pulse = 0.0;
+            pulse(&mut commands, &look, tuning, &player, &targets, &mut hits);
             if let Some(sounds) = &sounds {
                 sfx::play(&mut commands, &sounds.thud);
             }
         }
     }
+    // Flatlining: a slow, steady bleed, with no healing while it lasts.
     if heart.flatlined() {
-        health.current -= tuning.flatline_damage * dt;
+        health.bleed(tuning.flatline_damage * dt);
     }
 }
 
@@ -379,7 +383,6 @@ fn pulse(
     commands: &mut Commands,
     look: &PulseLook,
     tuning: &HeartTuning,
-    boosts: &Boosts,
     player: &PlayerStatus,
     targets: &Query<(Entity, &Transform, &Hitbox)>,
     hits: &mut MessageWriter<Damage>,
@@ -394,7 +397,8 @@ fn pulse(
         if middle.distance(nearest) <= tuning.pulse_radius {
             hits.write(Damage {
                 target,
-                amount: tuning.pulse_damage * boosts.damage,
+                // Not boosted by the heart rate: it's a perk on top.
+                amount: tuning.pulse_damage,
                 direction: (centre - middle).normalize_or(Vec3::Y),
             });
         }
@@ -646,12 +650,14 @@ mod tests {
             blood: 0.0,
             ..default()
         };
-        heart.squeeze(0.25);
+        assert!(heart.squeeze(0.25));
         assert!((heart.blood - 0.25).abs() < 1e-6);
         for _ in 0..10 {
             heart.squeeze(0.25);
         }
         assert_eq!(heart.blood, 1.0);
+        // A full heart gains nothing from another squeeze.
+        assert!(!heart.squeeze(0.25));
         assert_eq!(heart.since_squeeze, 0.0);
     }
 
