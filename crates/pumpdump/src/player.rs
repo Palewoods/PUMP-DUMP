@@ -6,7 +6,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 use bevy::prelude::*;
 use bevy::window::{CursorOptions, PrimaryWindow};
 use leafwing_input_manager::prelude::*;
-use pumpdump_movement::{MoveInput, MovementState, WallKind, step};
+use pumpdump_movement::{Grapple, MoveInput, MovementState, WallKind, step};
 
 use crate::input::{self, Action, look};
 use crate::map::{MapCollision, SKY, SPAWN};
@@ -65,6 +65,13 @@ pub struct MovementTick;
 pub struct PlayerStatus {
     pub velocity: Vec3,
     pub on_ground: bool,
+    /// The grappling hook, while it's out.
+    pub grapple: Option<Grapple>,
+    /// Dash charges available, and the most there can be.
+    pub stamina: f32,
+    pub max_stamina: f32,
+    pub dashing: bool,
+    pub slamming: bool,
 }
 
 #[derive(Component)]
@@ -76,7 +83,6 @@ struct Player {
     /// Radians. Yaw 0 faces -Z; positive turns left. Pitch positive looks up.
     yaw: f32,
     pitch: f32,
-    sprint_latched: bool,
     view: ViewSmoothing,
 }
 
@@ -102,7 +108,6 @@ fn spawn_player(mut commands: Commands, screen: Res<RetroScreen>) {
             previous: SPAWN,
             yaw: 0.0,
             pitch: 0.0,
-            sprint_latched: false,
             view: ViewSmoothing::default(),
         },
         // leafwing adds the matching `ActionState<Action>` for us.
@@ -170,19 +175,18 @@ fn tick_movement(
     let (mut player, actions) = player.into_inner();
 
     let wish = shape_stick(actions.clamped_axis_pair(&Action::Move), 1.0);
-    if actions.just_pressed(&Action::SprintToggle) {
-        player.sprint_latched = true;
-    }
-    if wish.y <= 0.1 {
-        player.sprint_latched = false;
-    }
     let input = MoveInput {
         wish,
         yaw: player.yaw,
+        pitch: player.pitch,
         // leafwing keeps a separate action state for FixedUpdate, so a press is
         // seen by exactly one tick even when a frame runs zero or several ticks.
         jump: actions.just_pressed(&Action::Jump),
-        sprint: actions.pressed(&Action::Sprint) || player.sprint_latched,
+        dash: actions.just_pressed(&Action::Dash),
+        slam: actions.just_pressed(&Action::Slide),
+        grapple: actions.pressed(&Action::Grapple),
+        // No sprint: walking is already full speed.
+        sprint: false,
         hang: actions.pressed(&Action::WallHang),
         slide: actions.pressed(&Action::Slide),
     };
@@ -213,6 +217,11 @@ fn tick_movement(
     }
     status.velocity = player.state.velocity;
     status.on_ground = player.state.on_ground;
+    status.grapple = player.state.grapple;
+    status.stamina = player.state.stamina;
+    status.max_stamina = tuning.dash_charges;
+    status.dashing = player.state.dash.is_some();
+    status.slamming = player.state.slam.is_some();
 }
 
 fn place_camera(
@@ -298,12 +307,12 @@ fn spawn_hud(mut commands: Commands) {
     ));
 }
 
-const CONTROLS: &str = "WASD move   mouse look   left mouse fire   R reload   Space jump   Shift sprint   Ctrl/C slide   right mouse wall-hang\n\
-                        Backspace back to spawn   Esc free mouse\n\
-                        Controller: sticks   RT fire   X reload   A jump   L3 sprint   B slide   LT wall-hang   Back to spawn\n\
-                        Jump again in the air to double jump. Jump at a wall while moving along it to wall-run.\n\
-                        Slide while sprinting for a boost. Jump out, land still holding slide, repeat: speed keeps building.\n\
-                        On a wall: jump looking along it to hop and keep running, or looking away to kick off. 3 per airtime.\n\
+const CONTROLS: &str = "WASD move   mouse look   left mouse fire   R reload   Space jump   Shift dash   Ctrl/C slide (in the air: slam)\n\
+                        E grapple (hold)   right mouse wall-hang   Backspace back to spawn   Esc free mouse\n\
+                        Controller: sticks   RT fire   X reload   A jump   RB dash   B slide/slam   LB grapple   LT wall-hang   Back to spawn\n\
+                        Dash costs a charge (3, they refill). Jump during a ground dash for a long dash jump.\n\
+                        Slide any time on the ground; slide-hop to build speed. Slam, then jump as you land to bounce high.\n\
+                        Touch any wall in the air and jump to wall jump, as often as you like. Run along walls for up to 12 s.\n\
                         Edit assets/movement.ron while playing; it reloads on save.";
 
 fn update_hud(
@@ -311,10 +320,14 @@ fn update_hud(
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
     mut text: Single<&mut Text, With<Hud>>,
 ) {
-    let v = player.state.velocity;
+    let state = &player.state;
+    let v = state.velocity;
     let speed = Vec2::new(v.x, v.z).length();
-    let mode = match (player.state.on_ground, player.state.wall) {
-        (true, _) if player.state.sliding => "sliding".to_string(),
+    let mode = match (state.on_ground, state.wall) {
+        _ if state.grapple.is_some_and(|g| g.attached) => "grappling".to_string(),
+        _ if state.dash.is_some() => "dashing".to_string(),
+        _ if state.slam.is_some() => "SLAM".to_string(),
+        (true, _) if state.sliding => "sliding".to_string(),
         (true, _) => "on ground".to_string(),
         (false, Some(wall)) if wall.kind == WallKind::Run => {
             format!("wall-run {:.2}s", wall.time)
@@ -327,10 +340,15 @@ fn update_hud(
     } else {
         "Click to capture the mouse"
     };
+    // Unlimited wall jumps are stored as u32::MAX.
+    let wall_jumps = if state.wall_jumps > 1_000_000 {
+        "unlimited".to_string()
+    } else {
+        state.wall_jumps.to_string()
+    };
     text.0 = format!(
-        "speed {speed:4.0} u/s ({:4.1} m/s)   vertical {:+5.0} u/s   {mode}   wall jumps {}\n\n{hint}",
+        "speed {speed:4.0} u/s ({:4.1} m/s)   vertical {:+5.0} u/s   {mode}   wall jumps {wall_jumps}\n\n{hint}",
         speed * METRES_PER_UNIT,
         v.y,
-        player.state.wall_jumps,
     );
 }

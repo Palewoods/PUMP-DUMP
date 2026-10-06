@@ -47,7 +47,11 @@ fn add_ramp(world: &mut StaticWorld, z_start: f32, run: f32, degrees: f32) {
 const FORWARD: MoveInput = MoveInput {
     wish: Vec2::new(0.0, 1.0),
     yaw: 0.0,
+    pitch: 0.0,
     jump: false,
+    dash: false,
+    slam: false,
+    grapple: false,
     sprint: false,
     hang: false,
     slide: false,
@@ -954,4 +958,281 @@ fn sliding_downhill_speeds_you_up() {
     assert!(state.sliding, "{state:?}");
     // Downhill pull is g·sin30°·cos30° ≈ 346 units/s², well over the friction.
     assert!(speed(&state) > landed + 40.0, "{landed} -> {state:?}");
+}
+
+// ---- the ULTRAKILL-style kit: dash, slam, grapple, endless walls ----
+
+/// Run `ticks` ticks with a custom tuning.
+fn run_with(
+    t: &MovementTuning,
+    world: &StaticWorld,
+    mut state: MovementState,
+    input: MoveInput,
+    ticks: usize,
+) -> MovementState {
+    for _ in 0..ticks {
+        state = step(&state, &input, t, world, DT);
+    }
+    state
+}
+
+const DASH: MoveInput = MoveInput {
+    dash: true,
+    ..FORWARD
+};
+
+#[test]
+fn dash_bursts_where_you_point_and_costs_a_charge() {
+    let world = floor();
+    let t = tuning();
+    let start = settle(&world, Vec3::ZERO);
+    let dashing = step(&start, &DASH, &t, &world, DT);
+    assert!(dashing.dash.is_some(), "{dashing:?}");
+    assert!((dashing.stamina - 2.0).abs() < 1e-3, "{dashing:?}");
+    assert!((speed(&dashing) - 900.0).abs() < 1.0, "{dashing:?}");
+    // A 0.2 s dash at 900 covers about 180 units, then hands over at exit speed.
+    let done = run_with(&t, &world, dashing, FORWARD, 12);
+    assert!(done.dash.is_none(), "{done:?}");
+    assert!((done.position.z + 180.0).abs() < 20.0, "{done:?}");
+    assert!(speed(&done) > 400.0, "{done:?}");
+}
+
+#[test]
+fn dashes_run_out_and_recharge() {
+    let world = floor();
+    let t = tuning();
+    let mut state = settle(&world, Vec3::ZERO);
+    for _ in 0..3 {
+        state = step(&state, &DASH, &t, &world, DT);
+        assert!(state.dash.is_some(), "{state:?}");
+        state = run_with(&t, &world, state, MoveInput::default(), 15);
+    }
+    let tired = step(&state, &DASH, &t, &world, DT);
+    assert!(
+        tired.dash.is_none(),
+        "dashed with no charge left: {tired:?}"
+    );
+    // A second of rest buys a charge back.
+    let rested = run_with(&t, &world, tired, MoveInput::default(), 60);
+    assert!(step(&rested, &DASH, &t, &world, DT).dash.is_some());
+}
+
+#[test]
+fn dash_jump_keeps_the_dash_speed() {
+    let world = floor();
+    let t = tuning();
+    let dashing = step(&settle(&world, Vec3::ZERO), &DASH, &t, &world, DT);
+    let jumped = step(
+        &dashing,
+        &MoveInput {
+            jump: true,
+            ..FORWARD
+        },
+        &t,
+        &world,
+        DT,
+    );
+    assert!(
+        jumped.dash.is_none() && jumped.velocity.y > 0.0,
+        "{jumped:?}"
+    );
+    assert!(speed(&jumped) >= 799.0, "{jumped:?}");
+}
+
+#[test]
+fn slam_drops_straight_down_and_bounces_a_jump() {
+    let world = floor();
+    let t = tuning();
+    let mut start = MovementState::new(Vec3::new(0.0, 500.0, 0.0));
+    start.velocity = Vec3::new(300.0, 100.0, 0.0);
+    let slam = MoveInput {
+        slam: true,
+        ..Default::default()
+    };
+    let slamming = step(&start, &slam, &t, &world, DT);
+    assert!(slamming.slam.is_some(), "{slamming:?}");
+    assert!(
+        slamming
+            .velocity
+            .abs_diff_eq(Vec3::new(0.0, -2000.0, 0.0), 1.0),
+        "{slamming:?}"
+    );
+    // 500 units at 2000/s: down in about a quarter of a second.
+    let mut landed = slamming;
+    for _ in 0..30 {
+        landed = step(&landed, &MoveInput::default(), &t, &world, DT);
+        if landed.on_ground {
+            break;
+        }
+    }
+    assert!(landed.on_ground && landed.slam.is_none(), "{landed:?}");
+    let bounce = landed.slam_bounce.expect("no bounce after a slam");
+    // Fell ~500: bounce height min(500 * 0.5, 400) = 250, speed sqrt(2 * 800 * 250) = 632.
+    assert!((bounce.speed - 632.0).abs() < 5.0, "{bounce:?}");
+    let jumped = step(
+        &landed,
+        &MoveInput {
+            jump: true,
+            ..Default::default()
+        },
+        &t,
+        &world,
+        DT,
+    );
+    assert!(
+        jumped.velocity.y > 600.0,
+        "a normal jump is about 283: {jumped:?}"
+    );
+    // Wait too long and it's a normal jump again.
+    let late = run_with(&t, &world, landed, MoveInput::default(), 15);
+    assert!(late.slam_bounce.is_none(), "{late:?}");
+}
+
+/// Floor plus a big wall 1000 ahead (face at z = -1000), 1000 tall.
+fn grapple_wall() -> StaticWorld {
+    let mut world = floor();
+    add_block(
+        &mut world,
+        Vec3::new(-500.0, 0.0, -1100.0),
+        Vec3::new(500.0, 1000.0, -1000.0),
+    );
+    world
+}
+
+#[test]
+fn grapple_hooks_a_wall_and_pulls_you_to_it() {
+    let world = grapple_wall();
+    let t = tuning();
+    let grapple = MoveInput {
+        grapple: true,
+        pitch: 0.3,
+        ..Default::default()
+    };
+    let mut state = settle(&world, Vec3::ZERO);
+    let mut hooked_at = None;
+    for tick in 0..90 {
+        state = step(&state, &grapple, &t, &world, DT);
+        if state.grapple.is_some_and(|g| g.attached) && hooked_at.is_none() {
+            hooked_at = Some(tick);
+        }
+    }
+    // The hook flies about 1050 units at 6000/s: around 11 ticks.
+    let hooked_at = hooked_at.expect("never hooked");
+    assert!((9..=13).contains(&hooked_at), "hooked on tick {hooked_at}");
+    // Pulled most of the way to the wall, and up it.
+    assert!(
+        state.position.z < -700.0 && state.position.y > 150.0,
+        "{state:?}"
+    );
+    // Letting go drops the hook.
+    let released = step(&state, &MoveInput::default(), &t, &world, DT);
+    assert!(released.grapple.is_none());
+}
+
+#[test]
+fn grapple_misses_in_the_open_and_needs_a_fresh_press() {
+    let world = floor();
+    let t = tuning();
+    let up = MoveInput {
+        grapple: true,
+        pitch: 1.5,
+        ..Default::default()
+    };
+    let mut state = step(&settle(&world, Vec3::ZERO), &up, &t, &world, DT);
+    assert!(state.grapple.is_some_and(|g| !g.hooked), "{state:?}");
+    // 3000 range at 6000/s: gone after half a second, and holding doesn't re-throw.
+    state = run_with(&t, &world, state, up, 60);
+    assert!(state.grapple.is_none(), "{state:?}");
+    let released = step(&state, &MoveInput::default(), &t, &world, DT);
+    let again = step(&released, &up, &t, &world, DT);
+    assert!(again.grapple.is_some(), "{again:?}");
+}
+
+#[test]
+fn unlimited_wall_jumps_never_run_out() {
+    let world = side_wall();
+    let mut t = tuning();
+    t.wall_jumps = None;
+    let hop = MoveInput {
+        jump: true,
+        ..SPRINT
+    };
+    let mut state = beside_wall(300.0);
+    state.wall_jumps = t.wall_jumps_per_airtime();
+    for _ in 0..10 {
+        state = run_with(&t, &world, state, SPRINT, 30);
+        state = step(&state, &hop, &t, &world, DT);
+        assert!(
+            state.wall.is_some_and(|w| w.time < DT),
+            "a hop failed: {state:?}"
+        );
+    }
+}
+
+#[test]
+fn touching_a_wall_is_enough_to_wall_jump() {
+    let world = side_wall();
+    let t = tuning();
+    // Beside the wall in the air, not moving along it: no wall-run.
+    let mut state = beside_wall(300.0);
+    state.velocity = Vec3::ZERO;
+    let still = step(&state, &MoveInput::default(), &t, &world, DT);
+    assert!(still.wall.is_none(), "{still:?}");
+    let jumped = step(
+        &still,
+        &MoveInput {
+            jump: true,
+            ..Default::default()
+        },
+        &t,
+        &world,
+        DT,
+    );
+    // Pushed away from the wall (it's on the +X side) and up.
+    assert!(
+        jumped.velocity.x < -250.0 && jumped.velocity.y > 250.0,
+        "{jumped:?}"
+    );
+    assert_eq!(jumped.wall_jumps, 2);
+}
+
+#[test]
+fn long_wall_runs_barely_sink() {
+    let world = side_wall();
+    let mut t = tuning();
+    t.wall_run_max_time = 10.0;
+    t.wall_run_fall_speed = 20.0;
+    let state = run_with(&t, &world, beside_wall(300.0), SPRINT, 8 * 60);
+    assert!(state.wall.is_some(), "run ended early: {state:?}");
+    // Sinking at most 20 units/s: under 170 lost in 8 s.
+    assert!(state.position.y > 130.0, "{state:?}");
+}
+
+#[test]
+fn slides_start_from_a_standstill_with_a_slide_speed() {
+    let world = floor();
+    let mut t = tuning();
+    t.slide_start_speed = 0.0;
+    t.slide_min_speed = 0.0;
+    t.slide_speed = 400.0;
+    let start = run_with(
+        &t,
+        &world,
+        MovementState::new(Vec3::ZERO),
+        MoveInput::default(),
+        30,
+    );
+    let slid = step(
+        &start,
+        &MoveInput {
+            slide: true,
+            ..Default::default()
+        },
+        &t,
+        &world,
+        DT,
+    );
+    assert!(slid.sliding, "{slid:?}");
+    // 400 floor + 100 boost, straight ahead (-Z), less a tick of friction.
+    assert!(slid.velocity.z < -495.0, "{slid:?}");
 }

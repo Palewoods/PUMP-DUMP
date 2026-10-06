@@ -1,15 +1,16 @@
 # PUMP&DUMP
 
-A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). Right now it's a sandbox: a test map for running, sliding, wall-running and blasting target dummies with a double-barrel shotgun, all at high speed.
+A fast-paced first-person movement shooter with a crunchy retro look, built in Rust with [Bevy](https://bevyengine.org/). Movement takes its cue from ULTRAKILL: always fast, with a dash, endless wall jumps, ground slams and a grappling hook. Right now it's a sandbox: a test map to fly around and target dummies to blast with a double-barrel shotgun.
 
 ## Movement
 
-- **Sprint and jump**, with snappy starts and hard stops (no ice-skating), plus a little forgiveness: you can still jump just after running off a ledge, and a jump pressed just before landing still fires.
-- **Double jump.** It also turns you towards the direction you're holding.
-- **Wall-run.** Jump at a wall while moving along it. Runs last up to 3.5 seconds.
-- **Wall jumps.** Up to 3 before you land again. Jump looking along the wall to *hop* and keep running, or looking away to *kick off* towards another wall.
-- **Wall-hang.** Grab a wall mid-air and hold still.
-- **Slide.** Sprint and slide for a speed boost. Jump out of the slide and land still holding slide to boost again: speed keeps building up to a cap of 1600 units/s (about 40 m/s, over 3× sprint speed). Sliding downhill speeds you up.
+- **Always fast.** There's no sprint: running is already 600 units/s (about 15 m/s), with instant starts and hard stops (no ice-skating). A little forgiveness too: you can still jump just after running off a ledge, and a jump pressed just before landing still fires.
+- **Dash.** A short burst of speed wherever you're steering, with gravity off. It costs one of 3 charges, which refill over time. **Dash jump:** jump during a ground dash for a long, fast leap.
+- **Slide.** Hold slide on the ground, from a standstill or at speed. Slides never slow down on the flat, speed up downhill, and get a kick each time you start one. Jump out and land still sliding to build speed (slide-hopping), up to a cap of 2600 units/s.
+- **Ground slam.** Press slide in the air to drive straight down. Jump right as you land to **slam-bounce**: the further you fell, the higher you go.
+- **Grappling hook.** Hold to throw it at any surface (up to 5000 units away) and get yanked towards it. Let go or jump to drop it and keep your momentum. Floating platforms around the map are there to hook onto.
+- **Walls.** Touch any wall in the air and jump to wall jump, as many times as you like. Jump at a wall while moving along it to wall-run for up to 12 seconds; jump looking along it to *hop* and keep running, or looking away to *kick off*.
+- **Double jump**, which also turns you towards the direction you're holding, and **wall-hang** to grab a wall and hold still.
 
 ## Weapons
 
@@ -32,8 +33,9 @@ Every movement number lives in [`crates/pumpdump/assets/movement.ron`](crates/pu
 | Fire | Left mouse | RT |
 | Reload | R | X |
 | Jump / double jump / wall jump | Space | A |
-| Sprint | Shift (hold) | L3 (click to toggle) |
-| Slide | Ctrl or C (hold) | B (hold) |
+| Dash | Shift | RB |
+| Slide (on the ground) / slam (in the air) | Ctrl or C | B |
+| Grappling hook | E or back mouse button (hold) | LB (hold) |
 | Wall-hang | Right mouse (hold) | LT (hold) |
 | Back to spawn | Backspace | Back |
 | Free the mouse | Esc (click the window to capture it again) | |

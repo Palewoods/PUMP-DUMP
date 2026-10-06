@@ -48,6 +48,43 @@ pub struct MovementTuning {
     pub slide_friction: f32,
     /// How fast the stick can turn a slide, units/s². Never adds speed.
     pub slide_steer: f32,
+    /// A slide always goes at least this fast, even started from a standstill,
+    /// units/s.
+    pub slide_speed: f32,
+
+    /// Dash charges when full.
+    pub dash_charges: f32,
+    /// Dash charges regained per second (not while dashing).
+    pub dash_recharge: f32,
+    /// Speed of a dash, units/s. Gravity is off while dashing.
+    pub dash_speed: f32,
+    /// How long a dash lasts, seconds.
+    pub dash_time: f32,
+    /// Flat speed you come out of a dash with, if you weren't already faster,
+    /// units/s.
+    pub dash_exit_speed: f32,
+    /// Flat speed of a dash jump (jumping out of a ground dash), units/s.
+    pub dash_jump_speed: f32,
+
+    /// Downward speed of a ground slam (slide pressed in the air), units/s.
+    pub slam_speed: f32,
+    /// Seconds after landing a slam in which a jump bounces higher.
+    pub slam_bounce_time: f32,
+    /// A slam bounce reaches this fraction of the height the slam fell...
+    pub slam_bounce_ratio: f32,
+    /// ...but no more than this, units.
+    pub slam_bounce_max_height: f32,
+
+    /// How far the grappling hook reaches, units.
+    pub grapple_range: f32,
+    /// How fast the hook flies out, units/s.
+    pub grapple_hook_speed: f32,
+    /// Speed it reels you in at, units/s.
+    pub grapple_pull_speed: f32,
+    /// How fast your velocity swings round towards the hook, units/s².
+    pub grapple_pull_accel: f32,
+    /// The grapple lets go when your eyes get this close to the hook, units.
+    pub grapple_release_distance: f32,
 
     /// Downward acceleration, units/s².
     pub gravity: f32,
@@ -77,6 +114,8 @@ pub struct MovementTuning {
     pub wall_run_min_speed: f32,
     /// Downward acceleration while wall-running, units/s².
     pub wall_run_gravity: f32,
+    /// Fastest a wall-run sinks, units/s. Small, so long runs keep their height.
+    pub wall_run_fall_speed: f32,
     /// When a run starts, upward speed is capped to this and a fall is caught
     /// (vertical speed raised to 0), units/s.
     pub wall_run_rise_speed: f32,
@@ -89,8 +128,9 @@ pub struct MovementTuning {
     /// Speed away from the wall added by a wall-jump, units/s. The upward part is
     /// the normal jump speed.
     pub wall_jump_push: f32,
-    /// Wall jumps (kick-offs and hops) allowed before you land again.
-    pub wall_jumps: u32,
+    /// Wall jumps (kick-offs and hops) allowed before you land again. `None` for
+    /// unlimited (in the .ron file: `wall_jumps: None` or `wall_jumps: Some(3)`).
+    pub wall_jumps: Option<u32>,
     /// Height a wall hop gains, units. A hop is a jump with the stick along the
     /// wall rather than away from it: you stay on the same wall and its run timer
     /// starts over, so hops chain into one long run.
@@ -121,6 +161,12 @@ impl MovementTuning {
         (2.0 * self.wall_run_gravity * self.wall_hop_height)
             .max(0.0)
             .sqrt()
+    }
+
+    /// Wall jumps you get back on landing. Unlimited counts as `u32::MAX`, which
+    /// never runs down.
+    pub fn wall_jumps_per_airtime(&self) -> u32 {
+        self.wall_jumps.unwrap_or(u32::MAX)
     }
 
     /// Initial upward speed of an air jump, from `air_jump_height`.

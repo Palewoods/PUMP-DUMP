@@ -56,6 +56,8 @@ enum Kind {
     Step,
     Crate,
     Marker,
+    /// Floating platforms, up high for the grappling hook.
+    Platform,
 }
 
 impl Kind {
@@ -68,6 +70,7 @@ impl Kind {
             Kind::Step => Color::srgb(0.42, 0.44, 0.36),
             Kind::Crate => Color::srgb(0.60, 0.45, 0.28),
             Kind::Marker => Color::srgb(0.80, 0.62, 0.22),
+            Kind::Platform => Color::srgb(0.36, 0.40, 0.42),
         }
     }
 
@@ -78,6 +81,7 @@ impl Kind {
             Kind::Ramp | Kind::Crate => Pattern::Planks,
             Kind::Step => Pattern::Concrete,
             Kind::Marker => Pattern::Plain,
+            Kind::Platform => Pattern::Slabs,
         }
     }
 }
@@ -234,6 +238,24 @@ fn layout() -> Vec<Piece> {
     p.push(wall(700.0, -1400.0, -5400.0, 400.0));
     p.push(wall(-900.0, -1400.0, -2000.0, 320.0));
     p.push(wall(-1300.0, -2100.0, -2700.0, 320.0));
+
+    // Floating platforms to grapple up to, from low to high, and one that hangs
+    // over the end of the corridor.
+    for (x, y, z, size) in [
+        (-600.0, 550.0, -800.0, 240.0),
+        (500.0, 800.0, -1500.0, 200.0),
+        (-1200.0, 1000.0, -1700.0, 260.0),
+        (0.0, 1100.0, -3400.0, 320.0),
+        (1300.0, 650.0, -2400.0, 240.0),
+        (-400.0, 1400.0, -4600.0, 300.0),
+    ] {
+        let h = size * 0.5;
+        p.push(block(
+            Vec3::new(x - h, y, z - h),
+            Vec3::new(x + h, y + 40.0, z + h),
+            Kind::Platform,
+        ));
+    }
 
     p
 }
@@ -433,22 +455,22 @@ mod tests {
         assert_eq!(state.velocity, Vec3::ZERO);
     }
 
-    /// The corridor walls are long and tall enough for a full-length wall-run with
-    /// the shipped tuning, without running off the end or sinking to the floor.
+    /// With the shipped tuning, a corridor wall-run lasts until the wall runs out
+    /// (it's shorter than a full-length run), without sinking to the floor.
     #[test]
-    fn corridor_fits_a_full_wall_run() {
+    fn corridor_wall_runs_last_to_the_end_of_the_wall() {
         let tuning = tuning();
         let world = collision(&layout());
         // Beside the right corridor wall (inner face x = 150), jumping in at sprint.
         let mut state = MovementState::new(Vec3::new(150.0 - 16.0 - 2.0, 100.0, -1500.0));
-        state.velocity = Vec3::new(0.0, 300.0, -tuning.sprint_speed);
+        state.velocity = Vec3::new(0.0, 300.0, -tuning.walk_speed);
         let forward = MoveInput {
             wish: Vec2::Y,
             sprint: true,
             ..Default::default()
         };
         let mut ran = 0.0;
-        for _ in 0..600 {
+        for _ in 0..(tuning.wall_run_max_time / DT) as usize + 60 {
             state = step(&state, &forward, &tuning, &world, DT);
             match state.wall {
                 Some(wall) if wall.kind == WallKind::Run => ran = wall.time,
@@ -456,15 +478,15 @@ mod tests {
                 _ => {}
             }
         }
-        assert!(
-            (ran - tuning.wall_run_max_time).abs() < 2.0 * DT,
-            "ran {ran} s: {state:?}"
-        );
+        // The wall ends at z = -5400, about 3900 units on: roughly 5 s at run speed.
+        assert!(ran > 4.0, "ran {ran} s: {state:?}");
+        assert!(state.position.z < -5300.0, "fell off early: {state:?}");
     }
 
-    /// Slide-hopping down the open floor with the shipped tuning reaches the cap.
+    /// Slide-hopping down the open floor with the shipped tuning builds speed well
+    /// past a plain slide, and never past the cap.
     #[test]
-    fn slide_hopping_reaches_the_speed_cap() {
+    fn slide_hopping_builds_speed_under_the_cap() {
         let tuning = tuning();
         let world = collision(&layout());
         // Start far from everything, on the open floor behind the spawn, facing +X.
@@ -485,6 +507,6 @@ mod tests {
             fastest = fastest.max(Vec2::new(state.velocity.x, state.velocity.z).length());
         }
         assert!(fastest <= tuning.max_speed + 1e-2, "{fastest}");
-        assert!(fastest > tuning.max_speed - 1.0, "only reached {fastest}");
+        assert!(fastest > tuning.slide_speed * 1.5, "only reached {fastest}");
     }
 }

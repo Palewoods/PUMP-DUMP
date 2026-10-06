@@ -29,14 +29,13 @@ pub enum Action {
     #[actionlike(DualAxis)]
     LookStick,
     Jump,
-    /// Held (keyboard).
-    Sprint,
-    /// Click once to sprint until you stop moving forwards (controller, L3).
-    SprintToggle,
-    /// Held: grab the wall you're touching in the air. On the aim buttons, as a
-    /// guess at the original's layout until we check it.
+    /// A quick burst of speed, paid for with a dash charge.
+    Dash,
+    /// Held: throw the grappling hook and get pulled to where it sticks.
+    Grapple,
+    /// Held: grab the wall you're touching in the air.
     WallHang,
-    /// Held: slide when moving fast on the ground.
+    /// Held: slide on the ground. Pressed in the air: ground slam.
     Slide,
     /// Fire the weapon. One shot per press.
     Fire,
@@ -54,8 +53,11 @@ pub fn default_bindings() -> InputMap<Action> {
         .with_dual_axis(Action::LookStick, GamepadStick::RIGHT)
         .with(Action::Jump, KeyCode::Space)
         .with(Action::Jump, GamepadButton::South)
-        .with(Action::Sprint, KeyCode::ShiftLeft)
-        .with(Action::SprintToggle, GamepadButton::LeftThumb)
+        .with(Action::Dash, KeyCode::ShiftLeft)
+        .with(Action::Dash, GamepadButton::RightTrigger)
+        .with(Action::Grapple, KeyCode::KeyE)
+        .with(Action::Grapple, MouseButton::Back)
+        .with(Action::Grapple, GamepadButton::LeftTrigger)
         .with(Action::WallHang, MouseButton::Right)
         .with(Action::WallHang, GamepadButton::LeftTrigger2)
         .with(Action::Slide, KeyCode::ControlLeft)

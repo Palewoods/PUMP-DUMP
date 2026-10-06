@@ -1,5 +1,7 @@
-// PUMP&DUMP movement tuning. Every value is
-// tuned by feel: change it, save, and try it.
+// PUMP&DUMP movement tuning, in the spirit of ULTRAKILL: always fast, dash on
+// a stamina bar, slides that never slow down, ground slams, unlimited wall
+// jumps and a grappling hook. Every value is tuned by feel: change it, save,
+// and try it.
 //
 // Units: game units (~1 inch), seconds, degrees.
 // The game reloads this file when you save it, no restart needed.
@@ -9,46 +11,75 @@
     capsule_height: 72.0,
     eye_height: 60.0,
 
-    // Ground movement. High accel and friction: snappy starts, hard stops, no drift.
-    walk_speed: 320.0,
-    sprint_speed: 480.0,
-    ground_accel: 6000.0,
-    ground_friction: 6000.0,
-    overspeed_decel: 500.0,
+    // Ground movement. Always fast (there's no sprint: walk is the run), with
+    // huge accel and friction: instant starts, hard stops, no drift.
+    walk_speed: 600.0,
+    sprint_speed: 600.0,
+    ground_accel: 9000.0,
+    ground_friction: 9000.0,
+    overspeed_decel: 400.0,
 
-    // Slide. Hold slide while sprinting; landing while holding it slides too.
-    // Each slide start adds slide_boost (once per cooldown), so slide-hopping
-    // keeps building speed up to max_speed.
-    slide_start_speed: 380.0,
-    slide_min_speed: 150.0,
-    slide_boost: 180.0,
-    slide_boost_cooldown: 0.6,
-    slide_friction: 120.0,
-    slide_steer: 500.0,
+    // Slide. Hold slide on the ground: from a standstill or at speed, it never
+    // drops below slide_speed and doesn't slow down. Each slide start adds
+    // slide_boost (once per cooldown), so slide-hopping builds speed.
+    slide_start_speed: 0.0,
+    slide_min_speed: 0.0,
+    slide_speed: 750.0,
+    slide_boost: 150.0,
+    slide_boost_cooldown: 0.5,
+    slide_friction: 0.0,
+    slide_steer: 900.0,
+
+    // Dash: a quick burst where you're steering (or straight ahead), with no
+    // gravity. Costs one of three charges, which refill over time. Jump during
+    // a ground dash for a long, fast dash jump.
+    dash_charges: 3.0,
+    dash_recharge: 1.2,
+    dash_speed: 2000.0,
+    dash_time: 0.14,
+    dash_exit_speed: 750.0,
+    dash_jump_speed: 1400.0,
+
+    // Ground slam: press slide in the air to drive straight down. Jump right as
+    // you land to bounce up, higher the further you slammed from.
+    slam_speed: 2800.0,
+    slam_bounce_time: 0.2,
+    slam_bounce_ratio: 0.8,
+    slam_bounce_max_height: 700.0,
+
+    // Grappling hook: hold to throw it at any surface and get yanked in.
+    // Let go (or jump) to drop it and keep your momentum.
+    grapple_range: 5000.0,
+    grapple_hook_speed: 9000.0,
+    grapple_pull_speed: 1700.0,
+    grapple_pull_accel: 7000.0,
+    grapple_release_distance: 150.0,
 
     // Air
-    air_accel: 1000.0,
-    // Hard cap on flat speed, however it's gained (slide-hops, wall-runs).
-    max_speed: 1600.0,
-    gravity: 1000.0,
+    air_accel: 2200.0,
+    // Hard cap on flat speed, however it's gained.
+    max_speed: 2600.0,
+    gravity: 1300.0,
     jump_height: 110.0,
     coyote_time: 0.12,
     jump_buffer_time: 0.12,
     air_jumps: 1,
-    air_jump_height: 96.0,
-    air_jump_redirect: 0.7,
+    air_jump_height: 90.0,
+    air_jump_redirect: 0.8,
 
-    // Walls
-    wall_run_speed: 700.0,
-    wall_run_accel: 1500.0,
-    wall_run_min_speed: 250.0,
-    wall_run_gravity: 120.0,
-    wall_run_rise_speed: 200.0,
-    wall_run_max_time: 3.5,
+    // Walls. Touch a wall in the air and jump to wall jump, as often as you
+    // like. Run along one and you can stay on it for a long time.
+    wall_run_speed: 800.0,
+    wall_run_accel: 2000.0,
+    wall_run_min_speed: 300.0,
+    wall_run_gravity: 300.0,
+    wall_run_fall_speed: 30.0,
+    wall_run_rise_speed: 250.0,
+    wall_run_max_time: 12.0,
     wall_hang_max_time: 3.0,
     wall_min_height: 24.0,
-    wall_jump_push: 450.0,
-    wall_jumps: 3,
+    wall_jump_push: 550.0,
+    wall_jumps: None,
     wall_hop_height: 64.0,
 
     // Terrain

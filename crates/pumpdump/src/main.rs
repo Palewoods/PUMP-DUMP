@@ -11,6 +11,7 @@
 //! functions) that run on *schedules* like `Startup`, `Update` and `FixedUpdate`.
 //! Systems declare what data they need in their parameters, and Bevy hands it over.
 
+mod abilities;
 mod dev;
 mod input;
 mod map;
@@ -51,6 +52,7 @@ fn main() {
             player::PlayerPlugin,
             targets::TargetsPlugin,
             weapon::WeaponPlugin,
+            abilities::AbilitiesPlugin,
             dev::DevPlugin,
         ))
         .run();

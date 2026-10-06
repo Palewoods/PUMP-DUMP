@@ -11,9 +11,9 @@
 //! capsule, stop just short of what it hits, remove the velocity going into that
 //! surface, and sweep again with what's left of the tick.
 //!
-//! Each tick the pilot is in one of four modes: on the ground, in the air,
-//! wall-running, or wall-hanging. Ground wins over walls; walls are only looked
-//! for in the air.
+//! Each tick the pilot is doing one thing, checked in this order: being pulled by
+//! the grapple, dashing, ground-slamming, on the ground, on a wall (running or
+//! hanging), or in the air. Walls are only looked for in the air.
 
 pub mod collision;
 mod tuning;
@@ -76,6 +76,20 @@ pub struct MovementState {
     pub sliding: bool,
     /// Seconds until starting a slide gives a speed boost again.
     pub slide_cooldown: f32,
+    /// Dashing, if a dash is under way.
+    pub dash: Option<Dash>,
+    /// Dash charges available. Fractions build up between dashes; a dash needs a
+    /// whole one.
+    pub stamina: f32,
+    /// Ground-slamming: the height the slam started from.
+    pub slam: Option<f32>,
+    /// Just landed a slam: a jump now bounces higher.
+    pub slam_bounce: Option<SlamBounce>,
+    /// The grappling hook, while it's out.
+    pub grapple: Option<Grapple>,
+    /// The grapple button has been let go since the last throw, so holding it
+    /// down doesn't keep re-firing.
+    pub grapple_armed: bool,
 }
 
 impl MovementState {
@@ -94,6 +108,54 @@ impl MovementState {
             wall_jumps: 0,
             sliding: false,
             slide_cooldown: 0.0,
+            dash: None,
+            // Full: trimmed to the tuning's number of charges on the first tick.
+            stamina: f32::MAX,
+            slam: None,
+            slam_bounce: None,
+            grapple: None,
+            grapple_armed: true,
+        }
+    }
+}
+
+/// A short burst of fixed speed in one direction, ignoring gravity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Dash {
+    /// Flat unit vector.
+    pub dir: Vec3,
+    pub time_left: f32,
+    /// Flat speed you leave the dash with.
+    pub exit_speed: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SlamBounce {
+    pub time_left: f32,
+    /// Upward speed a jump gets now (if more than a normal jump's).
+    pub speed: f32,
+}
+
+/// The grappling hook: flying out towards `anchor`, then pulling once it's there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grapple {
+    /// Where the hook is headed: the surface it will hit, or the end of its range.
+    pub anchor: Vec3,
+    /// It's going to hit something (rather than miss and reel back in).
+    pub hooked: bool,
+    /// How far the hook has flown so far, units.
+    pub reach: f32,
+    /// Stuck in: pulling.
+    pub attached: bool,
+}
+
+impl Grapple {
+    /// Where the hook is now, seen from `eye`.
+    pub fn tip(&self, eye: Vec3) -> Vec3 {
+        if self.attached {
+            self.anchor
+        } else {
+            eye + (self.anchor - eye).normalize_or_zero() * self.reach
         }
     }
 }
@@ -135,8 +197,17 @@ pub struct MoveInput {
     pub wish: Vec2,
     /// Facing around the up axis, radians.
     pub yaw: f32,
+    /// Looking up (positive) or down, radians. Aims the grapple.
+    pub pitch: f32,
     /// The jump button went down since the last tick.
     pub jump: bool,
+    /// The dash button went down since the last tick.
+    pub dash: bool,
+    /// The slide button went down since the last tick. In the air, that's a
+    /// ground slam.
+    pub slam: bool,
+    /// The grapple button is held.
+    pub grapple: bool,
     /// Sprint is held. Only counts while moving forwards.
     pub sprint: bool,
     /// Wall-hang is held. Grabs a wall you're touching in the air and holds still.
@@ -154,7 +225,12 @@ pub fn step(
     dt: f32,
 ) -> MovementState {
     // Garbage in (a zero tick, NaN from a broken controller) shouldn't corrupt the state.
-    if dt.is_nan() || dt <= 0.0 || !input.wish.is_finite() || !input.yaw.is_finite() {
+    if dt.is_nan()
+        || dt <= 0.0
+        || !input.wish.is_finite()
+        || !input.yaw.is_finite()
+        || !input.pitch.is_finite()
+    {
         return *state;
     }
     let body = Body {
@@ -175,6 +251,12 @@ pub fn step(
         buffered
     };
 
+    // Dash charges refill between dashes.
+    let mut stamina = state.stamina.min(tuning.dash_charges);
+    if state.dash.is_none() {
+        stamina = (stamina + tuning.dash_recharge * dt).min(tuning.dash_charges);
+    }
+
     // Ground is re-checked every tick rather than trusted from the last one.
     let mut ground = body.find_ground(world, pos, vel);
     let mut coyote = if ground.is_some() {
@@ -182,11 +264,65 @@ pub fn step(
     } else {
         (state.coyote - dt).max(0.0)
     };
-    let (mut wall, mut last_wall) = if ground.is_some() {
-        (None, None)
+
+    // The grapple: throw, fly, stick, pull. Being pulled lifts you off the ground.
+    let eye = pos + Vec3::Y * tuning.eye_height;
+    let (mut grapple, grapple_armed) = update_grapple(state, input, tuning, world, eye, dt);
+    let mut pulling = grapple.is_some_and(|g| g.attached);
+    let hooked_now = pulling && !state.grapple.is_some_and(|g| g.attached);
+    if pulling {
+        ground = None;
+    }
+
+    // Ground slam: slide pressed in the air. Landing one opens a window in which
+    // a jump bounces you up, higher the further you fell.
+    let mut slam = state.slam;
+    let mut slam_bounce = state.slam_bounce.and_then(|bounce| {
+        let time_left = bounce.time_left - dt;
+        (time_left > 0.0).then_some(SlamBounce {
+            time_left,
+            ..bounce
+        })
+    });
+    if ground.is_some()
+        && let Some(from) = slam.take()
+    {
+        slam_bounce = Some(slam_bounce_from(from - pos.y, tuning));
+        vel = Vec3::ZERO;
+    }
+    if input.slam && ground.is_none() && !pulling && slam.is_none() {
+        slam = Some(pos.y);
+    }
+
+    // Dash: a quick fixed-speed burst where the stick points (or straight ahead),
+    // paid for with a charge.
+    let mut dash = state.dash;
+    if input.dash && dash.is_none() && stamina >= 1.0 && slam.is_none() && !pulling {
+        stamina -= 1.0;
+        dash = Some(Dash {
+            dir: horizontal(wish)
+                .try_normalize()
+                .unwrap_or_else(|| facing(input.yaw)),
+            time_left: tuning.dash_time,
+            exit_speed: horizontal(vel).length().max(tuning.dash_exit_speed),
+        });
+    }
+    if slam.is_some() || pulling {
+        dash = None;
+    }
+
+    // Walls. Not while being pulled or slamming.
+    let walls = if ground.is_some() {
+        WallUpdate::default()
+    } else if pulling || slam.is_some() {
+        WallUpdate {
+            last_wall: state.last_wall,
+            ..WallUpdate::default()
+        }
     } else {
         body.next_wall(world, state, input, tuning, pos, dt)
     };
+    let (mut wall, mut last_wall, touching) = (walls.contact, walls.last_wall, walls.touching);
     // Starting a run catches a fall and trims a jump, so you run along the wall
     // rather than up it.
     if wall.map(|w| w.kind) == Some(WallKind::Run)
@@ -194,21 +330,23 @@ pub fn step(
     {
         vel.y = vel.y.clamp(0.0, tuning.wall_run_rise_speed);
     }
-    let mut air_jumps = if ground.is_some() || wall.is_some() {
+    let mut air_jumps = if ground.is_some() || wall.is_some() || hooked_now {
         tuning.air_jumps
     } else {
         state.air_jumps
     };
     let mut wall_jumps = if ground.is_some() {
-        tuning.wall_jumps
+        tuning.wall_jumps_per_airtime()
     } else {
         state.wall_jumps
     };
 
-    // Sliding: hold slide on the ground while moving fast. Starting a slide boosts
-    // your speed (at most once per `slide_boost_cooldown`), so landing in a slide
-    // and jumping out of it again builds speed, up to `max_speed`. This runs before
-    // jumping so a slide-hop that lands and jumps on the same tick still boosts.
+    // Sliding: hold slide on the ground. A slide never drops below `slide_speed`,
+    // and starting one boosts your speed (at most once per
+    // `slide_boost_cooldown`), so landing in a slide and jumping out of it again
+    // builds speed, up to `max_speed`. Sliding out of a dash keeps the dash's
+    // speed. This runs before jumping so a slide-hop that lands and jumps on the
+    // same tick still boosts.
     let mut slide_cooldown = (state.slide_cooldown - dt).max(0.0);
     let flat_speed = horizontal(vel).length();
     let slide_needs = if state.sliding {
@@ -216,22 +354,39 @@ pub fn step(
     } else {
         tuning.slide_start_speed
     };
-    let mut sliding =
-        ground.is_some() && input.slide && flat_speed > 0.0 && flat_speed >= slide_needs;
-    if sliding && !state.sliding && slide_cooldown <= 0.0 {
-        let boosted = (flat_speed + tuning.slide_boost).min(tuning.max_speed.max(flat_speed));
-        let flat = horizontal(vel) * (boosted / flat_speed);
+    let mut sliding = ground.is_some() && input.slide && flat_speed >= slide_needs;
+    if sliding && !state.sliding {
+        let mut dir = horizontal(vel)
+            .try_normalize()
+            .or_else(|| horizontal(wish).try_normalize())
+            .unwrap_or_else(|| facing(input.yaw));
+        let mut speed = flat_speed.max(tuning.slide_speed);
+        if let Some(dashing) = dash.take() {
+            dir = dashing.dir;
+            speed = speed.max(tuning.dash_speed);
+        }
+        // The boost goes on top, so every slide start feels like a kick.
+        if slide_cooldown <= 0.0 {
+            speed += tuning.slide_boost;
+            slide_cooldown = tuning.slide_boost_cooldown;
+        }
+        let speed = speed.min(tuning.max_speed.max(flat_speed));
+        let flat = dir * speed;
         vel = Vec3::new(flat.x, vel.y, flat.z);
-        slide_cooldown = tuning.slide_boost_cooldown;
     }
 
-    // Jumps, in order of preference: off (or along) a wall, off the ground (or
-    // just after leaving it), then a double jump.
+    // Jumps, in order of preference: off (or along) a wall you're on, off the
+    // ground (or just after leaving it), off a wall you're touching, then a
+    // double jump. Jumping lets go of the grapple.
     if wants_jump {
         let mut jumped = false;
+        if pulling {
+            grapple = None;
+            pulling = false;
+        }
         if let Some(contact) = wall {
             if wall_jumps > 0 {
-                wall_jumps -= 1;
+                spend_wall_jump(&mut wall_jumps, tuning);
                 jumped = true;
                 if contact.kind == WallKind::Run && is_wall_hop(wish, contact.plane.normal) {
                     // Hop: stay on the wall, rise again, and restart the run timer.
@@ -254,12 +409,27 @@ pub fn step(
         if !jumped && wall.is_none() {
             if ground.is_some() || coyote > 0.0 {
                 vel.y = tuning.jump_speed();
+                if let Some(bounce) = slam_bounce.take() {
+                    vel.y = vel.y.max(bounce.speed);
+                }
+                // Dash jump: jumping out of a ground dash keeps most of its speed.
+                if let Some(dashing) = dash.take() {
+                    let flat = dashing.dir * tuning.dash_jump_speed.max(horizontal(vel).length());
+                    vel = Vec3::new(flat.x, vel.y, flat.z);
+                }
                 ground = None;
                 sliding = false;
+                jumped = true;
+            } else if let Some(plane) = touching.filter(|_| wall_jumps > 0) {
+                spend_wall_jump(&mut wall_jumps, tuning);
+                vel = wall_jump(vel, plane.normal, tuning);
+                last_wall = Some(plane);
+                dash = None;
                 jumped = true;
             } else if air_jumps > 0 {
                 vel = air_jump(vel, wish, tuning);
                 air_jumps -= 1;
+                dash = None;
                 jumped = true;
             }
         }
@@ -269,7 +439,43 @@ pub fn step(
         }
     }
 
-    if let Some(normal) = ground {
+    if pulling && let Some(hook) = grapple {
+        // Reel in: velocity swings round towards the anchor at pull speed.
+        let towards = (hook.anchor - (pos + Vec3::Y * tuning.eye_height)).normalize_or_zero();
+        vel = move_towards(
+            vel,
+            towards * tuning.grapple_pull_speed,
+            tuning.grapple_pull_accel * dt,
+        );
+        let pulled = body.slide(world, pos, vel, dt, false);
+        (pos, vel) = (pulled.pos, pulled.vel);
+    } else if let Some(mut dashing) = dash {
+        let mut burst = dashing.dir * tuning.dash_speed;
+        if let Some(normal) = ground {
+            burst = along_ground(burst, normal);
+        }
+        let moved = body.slide(world, pos, burst, dt, ground.is_some());
+        pos = moved.pos;
+        if ground.is_some() {
+            pos = body
+                .snap_down(world, pos, tuning.step_height)
+                .unwrap_or(pos);
+        }
+        // How much of the dash got through (less if it ran into something).
+        let free = (horizontal(moved.vel).length() / tuning.dash_speed).min(1.0);
+        dashing.time_left -= dt;
+        if dashing.time_left > 0.0 {
+            vel = moved.vel;
+            dash = Some(dashing);
+        } else {
+            let flat = dashing.dir * dashing.exit_speed * free;
+            vel = Vec3::new(flat.x, 0.0, flat.z);
+            dash = None;
+        }
+    } else if slam.is_some() {
+        let fall = body.slide(world, pos, Vec3::NEG_Y * tuning.slam_speed, dt, false);
+        (pos, vel) = (fall.pos, fall.vel);
+    } else if let Some(normal) = ground {
         let flat = if sliding {
             slide_move(horizontal(vel), wish, normal, tuning, dt)
         } else {
@@ -316,6 +522,8 @@ pub fn step(
                 let flat = horizontal(clip(run.vel, normal)).clamp_length_max(top);
                 vel = Vec3::new(flat.x, run.vel.y, flat.z);
                 vel.y -= tuning.wall_run_gravity * dt * 0.5;
+                // Runs sink slowly at most, so long ones don't end on the floor.
+                vel.y = vel.y.max(-tuning.wall_run_fall_speed);
             }
         }
     } else {
@@ -340,7 +548,11 @@ pub fn step(
         wall = None;
         last_wall = None;
         air_jumps = tuning.air_jumps;
-        wall_jumps = tuning.wall_jumps;
+        wall_jumps = tuning.wall_jumps_per_airtime();
+        if let Some(from) = slam.take() {
+            slam_bounce = Some(slam_bounce_from(from - pos.y, tuning));
+            vel = Vec3::ZERO;
+        }
     }
     MovementState {
         position: pos,
@@ -354,7 +566,89 @@ pub fn step(
         wall_jumps,
         sliding: sliding && ground.is_some(),
         slide_cooldown,
+        dash,
+        stamina,
+        slam,
+        slam_bounce,
+        grapple,
+        grapple_armed,
     }
+}
+
+/// Throw, fly, stick or let go of the grapple. Returns it (if it's still out) and
+/// whether the button is free to throw again.
+fn update_grapple(
+    state: &MovementState,
+    input: &MoveInput,
+    tuning: &MovementTuning,
+    world: &impl CollisionWorld,
+    eye: Vec3,
+    dt: f32,
+) -> (Option<Grapple>, bool) {
+    if !input.grapple {
+        return (None, true);
+    }
+    let mut armed = state.grapple_armed;
+    let mut hook = match state.grapple {
+        Some(hook) => hook,
+        None if armed => {
+            armed = false;
+            let reach = aim_direction(input.yaw, input.pitch) * tuning.grapple_range;
+            let (anchor, hooked) = match world.cast_ray(eye, reach) {
+                Some(hit) => (eye + reach * hit.fraction, true),
+                None => (eye + reach, false),
+            };
+            Grapple {
+                anchor,
+                hooked,
+                reach: 0.0,
+                attached: false,
+            }
+        }
+        None => return (None, armed),
+    };
+    if hook.attached {
+        // Arrived: let go and keep the momentum.
+        if hook.anchor.distance(eye) <= tuning.grapple_release_distance {
+            return (None, armed);
+        }
+    } else {
+        hook.reach += tuning.grapple_hook_speed * dt;
+        if hook.reach >= hook.anchor.distance(eye) {
+            if !hook.hooked {
+                return (None, armed); // missed: it reels back in
+            }
+            hook.attached = true;
+        }
+    }
+    (Some(hook), armed)
+}
+
+/// What a slam bounce gives for landing a slam that fell `fallen` units.
+fn slam_bounce_from(fallen: f32, tuning: &MovementTuning) -> SlamBounce {
+    let height = (fallen.max(0.0) * tuning.slam_bounce_ratio).min(tuning.slam_bounce_max_height);
+    SlamBounce {
+        time_left: tuning.slam_bounce_time,
+        speed: (2.0 * tuning.gravity * height).sqrt(),
+    }
+}
+
+/// Use up a wall jump, unless they're unlimited.
+fn spend_wall_jump(wall_jumps: &mut u32, tuning: &MovementTuning) {
+    if tuning.wall_jumps.is_some() {
+        *wall_jumps = wall_jumps.saturating_sub(1);
+    }
+}
+
+/// Flat unit vector the player faces.
+fn facing(yaw: f32) -> Vec3 {
+    Vec3::new(-yaw.sin(), 0.0, -yaw.cos())
+}
+
+/// Unit vector the player looks along.
+fn aim_direction(yaw: f32, pitch: f32) -> Vec3 {
+    let (sin_pitch, cos_pitch) = pitch.sin_cos();
+    facing(yaw) * cos_pitch + Vec3::Y * sin_pitch
 }
 
 /// Collision shape plus what counts as ground, shared by all the helpers.
@@ -367,6 +661,16 @@ struct Ground {
     normal: Vec3,
     /// Height of the surface itself (not the feet).
     height: f32,
+}
+
+/// Result of checking for walls this tick.
+#[derive(Default)]
+struct WallUpdate {
+    /// Running on or hanging from a wall.
+    contact: Option<WallContact>,
+    last_wall: Option<WallPlane>,
+    /// A wall right beside us, grabbed or not. Jumping off it is a wall jump.
+    touching: Option<WallPlane>,
 }
 
 struct Slide {
@@ -557,7 +861,7 @@ impl Body {
     }
 
     /// Whether we're on a wall this tick: keep, start, switch or let go of a
-    /// wall-run or hang. Returns the contact and the updated `last_wall`.
+    /// wall-run or hang.
     fn next_wall(
         &self,
         world: &impl CollisionWorld,
@@ -566,7 +870,7 @@ impl Body {
         tuning: &MovementTuning,
         pos: Vec3,
         dt: f32,
-    ) -> (Option<WallContact>, Option<WallPlane>) {
+    ) -> WallUpdate {
         let found = self.find_wall(world, pos, state.wall.map(|w| w.plane.normal));
         let wish = wish_velocity(input, tuning).normalize_or_zero();
         // A run needs speed along the wall, and the stick not pointing away from it.
@@ -587,13 +891,24 @@ impl Body {
                     .then(|| contact(WallKind::Run, plane, time)),
             });
             return match next {
-                Some(next) => (Some(next), state.last_wall),
-                None => (None, Some(current.plane)),
+                Some(next) => WallUpdate {
+                    contact: Some(next),
+                    last_wall: state.last_wall,
+                    touching: found,
+                },
+                None => WallUpdate {
+                    contact: None,
+                    last_wall: Some(current.plane),
+                    touching: found,
+                },
             };
         }
 
         let Some(plane) = found else {
-            return (None, state.last_wall);
+            return WallUpdate {
+                last_wall: state.last_wall,
+                ..WallUpdate::default()
+            };
         };
         let grabbable = !state.last_wall.is_some_and(|last| last.same_as(&plane))
             && self.clear_of_ground(world, pos, tuning.wall_min_height);
@@ -606,7 +921,11 @@ impl Body {
         } else {
             None
         };
-        (kind.map(|kind| contact(kind, plane, 0.0)), state.last_wall)
+        WallUpdate {
+            contact: kind.map(|kind| contact(kind, plane, 0.0)),
+            last_wall: state.last_wall,
+            touching: Some(plane),
+        }
     }
 
     /// How far we can move in `dir` (unit vector), up to `max`, keeping SKIN clear.

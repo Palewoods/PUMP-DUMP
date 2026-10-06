@@ -33,6 +33,12 @@ pub struct Sounds {
     pub close: Handle<Sfx>,
     /// A pellet hitting a target.
     pub hit: Handle<Sfx>,
+    /// Dashing, and the grappling hook flying out.
+    pub whoosh: Handle<Sfx>,
+    /// The grappling hook biting into something.
+    pub clank: Handle<Sfx>,
+    /// A ground slam landing.
+    pub thud: Handle<Sfx>,
 }
 
 /// Play a sound once.
@@ -106,6 +112,9 @@ fn make_sounds(mut commands: Commands, mut sfx: ResMut<Assets<Sfx>>) {
         load: add(click(0.06, 520.0, 0.35, 7)),
         close: add(click(0.08, 1300.0, 0.6, 11)),
         hit: add(click(0.04, 260.0, 0.35, 13)),
+        whoosh: add(whoosh()),
+        clank: add(click(0.12, 900.0, 0.7, 17)),
+        thud: add(thud()),
     });
 }
 
@@ -143,6 +152,36 @@ fn shotgun_blast() -> Vec<f32> {
         .collect()
 }
 
+/// A rush of air: noise that swells and fades, brightening as it goes.
+fn whoosh() -> Vec<f32> {
+    let mut noise = Noise(0x0BAD_F00D);
+    let mut low = 0.0;
+    let seconds = 0.3;
+    samples(seconds)
+        .map(|t| {
+            // The low-pass opens up over the sound, so it gets brighter.
+            low += (0.04 + 0.3 * t / seconds) * (noise.next() - low);
+            // Rises and falls smoothly, all the way to silence at both ends.
+            let swell = (t / seconds * std::f32::consts::PI).sin().powi(4);
+            (low * 2.8 * swell).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
+/// A heavy landing: a deep falling thump with a bit of crunch.
+fn thud() -> Vec<f32> {
+    let mut noise = Noise(0x5EED_1234);
+    let mut low = 0.0;
+    samples(0.5)
+        .map(|t| {
+            low += 0.12 * (noise.next() - low);
+            let thump = (TAU * (90.0 - 60.0 * t) * t).sin() * (-t * 10.0).exp();
+            let crunch = low * 1.5 * (-t * 18.0).exp();
+            ((thump + crunch) * 0.9).clamp(-1.0, 1.0)
+        })
+        .collect()
+}
+
 /// A short mechanical click: a noise tick plus a quickly fading ring at `pitch`.
 fn click(seconds: f32, pitch: f32, volume: f32, seed: u32) -> Vec<f32> {
     let mut noise = Noise(0x1234_5678 ^ seed.wrapping_mul(0x0101_0101));
@@ -161,7 +200,12 @@ mod tests {
 
     #[test]
     fn sounds_stay_in_range_and_fade_out() {
-        for sound in [shotgun_blast(), click(0.05, 1900.0, 0.5, 3)] {
+        for sound in [
+            shotgun_blast(),
+            click(0.05, 1900.0, 0.5, 3),
+            whoosh(),
+            thud(),
+        ] {
             assert!(sound.iter().all(|s| s.abs() <= 1.0));
             let tail = &sound[sound.len() * 9 / 10..];
             assert!(tail.iter().all(|s| s.abs() < 0.05), "doesn't fade out");
