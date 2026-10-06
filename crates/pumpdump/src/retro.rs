@@ -8,7 +8,7 @@
 
 use bevy::camera::RenderTarget;
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, Extent3d, TextureFormat};
+use bevy::render::render_resource::{AsBindGroup, TextureFormat};
 use bevy::shader::ShaderRef;
 use bevy::ui::IsDefaultUiCamera;
 use bevy::window::PrimaryWindow;
@@ -88,6 +88,10 @@ fn spawn_screen(
         Msaa::Off,
         IsDefaultUiCamera,
     ));
+    let material = materials.add(RetroMaterial {
+        settings: Vec4::new(COLOUR_LEVELS, DITHER, 0.0, 0.0),
+        screen: screen.image.clone(),
+    });
     commands.spawn((
         Node {
             position_type: PositionType::Absolute,
@@ -95,36 +99,56 @@ fn spawn_screen(
             height: percent(100),
             ..default()
         },
-        MaterialNode(materials.add(RetroMaterial {
-            settings: Vec4::new(COLOUR_LEVELS, DITHER, 0.0, 0.0),
-            screen: screen.image.clone(),
-        })),
+        MaterialNode(material.clone()),
         // Behind every other bit of UI (the HUD).
         GlobalZIndex(-1),
     ));
+    commands.insert_resource(ScreenMaterial(material));
 }
 
+/// The material showing the retro image, so it can be refreshed on resize.
+#[derive(Resource)]
+struct ScreenMaterial(Handle<RetroMaterial>);
+
 /// Keeps the image's width matched to the window's shape, so pixels stay square.
+///
+/// When the shape changes it swaps in a new image of the right size and points
+/// the cameras and the screen material at it. (Resizing the existing image in
+/// place leaves the screen showing a frozen copy of the old one.)
 fn fit_to_window(
     window: Single<&Window, With<PrimaryWindow>>,
-    screen: Res<RetroScreen>,
+    mut screen: ResMut<RetroScreen>,
+    screen_material: Option<Res<ScreenMaterial>>,
+    mut cameras: Query<&mut RenderTarget, With<Camera3d>>,
     mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<RetroMaterial>>,
 ) {
     let (w, h) = (window.width(), window.height());
     if w < 1.0 || h < 1.0 {
         return; // minimised
     }
     let width = ((PIXEL_HEIGHT as f32 * w / h).round() as u32).max(1);
-    // Only touch the image when it actually changes: `get_mut` marks it as
-    // modified, which re-uploads it to the GPU.
-    let current = images.get(&screen.image).map(|i| i.width());
-    if current.is_some_and(|c| c != width)
-        && let Some(mut image) = images.get_mut(&screen.image)
-    {
-        image.resize(Extent3d {
-            width,
-            height: PIXEL_HEIGHT,
-            depth_or_array_layers: 1,
-        });
+    if images.get(&screen.image).is_none_or(|i| i.width() == width) {
+        return;
     }
+    let Some(screen_material) = screen_material else {
+        return; // not set up yet; try again next frame
+    };
+
+    let old = screen.image.clone();
+    screen.image = images.add(Image::new_target_texture(
+        width,
+        PIXEL_HEIGHT,
+        TextureFormat::Rgba8UnormSrgb,
+        None,
+    ));
+    for mut target in &mut cameras {
+        if matches!(&*target, RenderTarget::Image(image) if image.handle == old) {
+            *target = screen.target();
+        }
+    }
+    if let Some(mut material) = materials.get_mut(&screen_material.0) {
+        material.screen = screen.image.clone();
+    }
+    images.remove(&old);
 }
