@@ -23,6 +23,10 @@ up: get to it to clear the level.
 2 The Rooftops    A city block at night. The exit is on the clock tower.
 3 The Foundry     Catwalks round a furnace pit. The exit is down in the pit.
 
+Clearing a level earns an upgrade: the next level of a weapon (quad barrel
+shotgun, four-barrel rocket launcher, homing rockets...) or of your perk.
+Faster heart rates also bring aim assist: near misses bend onto the target.
+
 
 CONTROLS
 --------

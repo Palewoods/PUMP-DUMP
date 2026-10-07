@@ -1,7 +1,8 @@
 //! Rockets from the rocket launcher, and their explosions.
 //!
-//! A rocket flies straight until it hits something (a wall, or anything with a
-//! hitbox) or runs out of fuel, then explodes: whatever it hit takes the direct
+//! A rocket flies straight (or, seeking, turns towards a target ahead of it)
+//! until it hits something (a wall, or anything with a hitbox) or runs out of
+//! fuel, then explodes: whatever it hit takes the direct
 //! damage, and everything in the blast takes splash damage that falls off with
 //! distance. The blast also throws the player away from it (but never hurts
 //! them), so a rocket at your feet launches you: a rocket jump.
@@ -64,6 +65,27 @@ struct Rocket {
     splash: f32,
     radius: f32,
     knockback: f32,
+    seek: Option<Seek>,
+}
+
+/// A rocket that turns towards targets: any within `cone` radians of where
+/// it's heading (and not behind a wall), at up to `turn` radians a second.
+#[derive(Clone, Copy, Debug)]
+pub struct Seek {
+    pub cone: f32,
+    pub turn: f32,
+}
+
+/// `velocity` turned towards the unit direction `towards`, by at most
+/// `max_turn` radians. Same speed.
+pub fn steer(velocity: Vec3, towards: Vec3, max_turn: f32) -> Vec3 {
+    let heading = velocity.normalize_or_zero();
+    let angle = heading.angle_between(towards);
+    if angle < 1e-5 || heading == Vec3::ZERO {
+        return velocity;
+    }
+    let share = (max_turn / angle).min(1.0);
+    Quat::IDENTITY.slerp(Quat::from_rotation_arc(heading, towards), share) * velocity
 }
 
 /// An explosion's fireball: swells, then shrinks away, with a flash of light.
@@ -103,13 +125,15 @@ fn make_look(
     });
 }
 
-/// Fire a rocket from `from` along `direction` (a unit vector).
+/// Fire a rocket from `from` along `direction` (a unit vector), seeking
+/// targets if `seek` says so.
 pub fn launch(
     commands: &mut Commands,
     look: &RocketLook,
     from: Vec3,
     direction: Vec3,
     tuning: &LauncherTuning,
+    seek: Option<Seek>,
 ) {
     commands
         .spawn((
@@ -121,6 +145,7 @@ pub fn launch(
                 splash: tuning.splash_damage,
                 radius: tuning.splash_radius,
                 knockback: tuning.knockback,
+                seek,
             },
             Transform::from_translation(from).looking_to(direction, Vec3::Y),
             Visibility::default(),
@@ -160,6 +185,27 @@ fn fly_rockets(
     let dt = time.delta_secs();
     for (entity, mut rocket, mut transform) in &mut rockets {
         let from = transform.translation;
+        if let Some(seek) = rocket.seek {
+            let heading = rocket.velocity.normalize_or_zero();
+            let quarry = targets
+                .iter()
+                .filter(|(_, _, hitbox)| hitbox.enabled)
+                .filter_map(|(_, target, hitbox)| {
+                    let to = hitbox.centre(target) - from;
+                    let towards = to.normalize_or_zero();
+                    let angle = heading.angle_between(towards);
+                    let seen = map
+                        .0
+                        .cast_ray(from, to)
+                        .is_none_or(|hit| hit.fraction > 0.98);
+                    (angle < seek.cone && seen).then_some((angle, towards))
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0));
+            if let Some((_, towards)) = quarry {
+                rocket.velocity = steer(rocket.velocity, towards, seek.turn * dt);
+                transform.look_to(rocket.velocity, Vec3::Y);
+            }
+        }
         let travel = rocket.velocity * dt;
         let length = travel.length();
         let direction = travel / length.max(1e-6);
@@ -334,5 +380,22 @@ fn fade_smoke(
         }
         transform.scale = Vec3::splat(3.0 + (1.0 - puff.life / SMOKE_TIME) * 6.0);
         transform.translation.y += time.delta_secs() * 20.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn steering_turns_at_most_so_far_and_keeps_the_speed() {
+        let velocity = Vec3::new(0.0, 0.0, -2000.0);
+        let right = Vec3::X;
+        let turned = steer(velocity, right, 0.1);
+        assert!((turned.length() - 2000.0).abs() < 1e-2);
+        assert!((turned.angle_between(velocity) - 0.1).abs() < 1e-4);
+        // Close enough: straight at it.
+        let near = Vec3::new(0.05, 0.0, -1.0).normalize();
+        assert!(steer(velocity, near, 0.5).normalize().angle_between(near) < 1e-4);
     }
 }

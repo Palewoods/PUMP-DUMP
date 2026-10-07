@@ -27,6 +27,7 @@ mod run;
 mod sfx;
 mod targets;
 mod tuning;
+mod upgrades;
 mod viewmodel;
 mod weapon;
 
@@ -72,6 +73,7 @@ fn main() {
             heart::HeartPlugin,
             levels::LevelsPlugin,
             run::RunPlugin,
+            upgrades::UpgradesPlugin,
             dev::DevPlugin,
         ))
         .run();

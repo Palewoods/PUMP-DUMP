@@ -8,7 +8,27 @@ There are three levels to fight through, plus a training yard.
 
 ## Levels
 
-Pick **PLAY** on the title screen to start at the beginning, **LEVEL SELECT** to jump to any level, or **TRAINING** to mess about. In every level the job is the same: kill every hunter, and the exit's beacon lights up; get to it to clear the level. The HUD counts the hunters left, then points you to the exit. Your heart rate and perk carry on to the next level, and your health and heart are topped up.
+Pick **PLAY** on the title screen to start at the beginning, **LEVEL SELECT** to jump to any level, or **TRAINING** to mess about. In every level the job is the same: kill every hunter, and the exit's beacon lights up; get to it to clear the level. The HUD counts the hunters left, then points you to the exit. Your heart rate, perk and upgrades carry on to the next level, and your health and heart are topped up.
+
+### Upgrades
+
+Clearing a level earns an upgrade: pick the next level of any weapon, or of your perk. Each has two.
+
+| Weapon | Level 1 | Level 2 |
+|---|---|---|
+| Machete | **Cleaver:** a bigger blade, harder hits, more reach | **Bloodletter:** every hit heals you and feeds your heart |
+| Revolver | **Fan the Hammer:** hold the trigger, nearly twice as fast | **Ricochet:** hits bounce on to the next hunter nearby |
+| Shotgun | **Quad Barrel:** four barrels, four shots per reload | **Boomstick:** harder hits, and every shot throws you back |
+| Tommy gun | **Big Drum:** 100 rounds | **Piercing Rounds:** harder hits that go through people |
+| Rocket launcher | **Quad Launcher:** four barrels, four rockets a shot | **Homing Rockets:** they lock on and chase |
+
+| Perk | Level 1 | Level 2 |
+|---|---|---|
+| Bloodlust | **Feast:** kills heal nearly twice as much | **Frenzy:** kills also feed your heart |
+| Pulse | **Shockwave:** further, and much harder | **Quickening:** more than twice as often |
+| Second Heart | **Strong Heart:** come back at full health | **Third Heart:** come back twice per level |
+
+Starting afresh from the title screen starts the upgrades again.
 
 1. **The Yard.** A rail yard at dusk: lanes between stacked shipping containers, a loading shed and dock, and the tracks at the far end.
 2. **The Rooftops.** A city block at night. Hunters on the street and the roofs, and the way out is on top of the clock tower: climb the roofs one jump at a time, or grapple.
@@ -22,13 +42,15 @@ Press **Esc** (or Start) to pause: resume, restart the level, see the controls, 
 
 At the start of every run you pick a heart rate. Your heart holds a measure of blood that drains away; press **Q** to pull it out (your weapons go away) and **fire** to squeeze it: each squeeze is one beat, a quarter of a full heart. Press Q again to get your weapon back. Once it's below half full, your heart rate's boosts start to fade (all but health), down to nothing on an empty heart; squeezing brings them straight back. Let it run dry and you **flatline**: the screen goes dark and you lose 10 health a second, with no healing, until you beat it again.
 
-| Heart rate | BPM | A full heart lasts | Damage | Accuracy | Health | Speed | Reload |
-|---|---|---|---|---|---|---|---|
-| 1 Dormant | 30 | 40 s | x1.0 | normal | 100 | x1.0 | normal |
-| 2 Steady | 60 | 25 s | x1.15 | +10% | 125 | x1.05 | 10% faster |
-| 3 Quick | 90 | 15 s | x1.3 | +20% | 150 | x1.1 | 20% faster |
-| 4 Pounding | 130 | 10 s | x1.5 | +30% | 175 | x1.15 | 30% faster |
-| 5 Racing | 180 | 6 s | x1.75 | +40% | 200 | x1.2 | 40% faster |
+| Heart rate | BPM | A full heart lasts | Damage | Accuracy | Aim assist | Health | Speed | Reload |
+|---|---|---|---|---|---|---|---|---|
+| 1 Dormant | 30 | 40 s | x1.0 | normal | none | 100 | x1.0 | normal |
+| 2 Steady | 60 | 25 s | x1.15 | +10% | 1.5° | 125 | x1.05 | 10% faster |
+| 3 Quick | 90 | 15 s | x1.3 | +20% | 2.5° | 150 | x1.1 | 20% faster |
+| 4 Pounding | 130 | 10 s | x1.5 | +30% | 3.5° | 175 | x1.15 | 30% faster |
+| 5 Racing | 180 | 6 s | x1.75 | +40% | 4.5° | 200 | x1.2 | 40% faster |
+
+**Aim assist:** a shot that would only just miss someone bends onto them (you can see the tracer curve), and rockets drift a little towards whoever's ahead. Only near misses: within that many degrees, and within 10 units per degree of the target, so it helps rather than aims for you. It fades along with the other boosts as your heart runs low.
 
 At **Racing** you also pick a perk:
 

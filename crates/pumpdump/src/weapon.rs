@@ -9,6 +9,9 @@
 //! rockets (see `rockets.rs`).
 //!
 //! Every number lives in `assets/weapons.ron`, hot-reloaded like movement.ron.
+//! Upgrades picked between levels change some of them, and what some weapons
+//! do (see `upgrades.rs`). A fast heart rate brings aim assist: shots that
+//! would only just miss bend onto their target (see [`bend`]).
 //! The first-person models are in `viewmodel.rs`.
 
 use std::f32::consts::PI;
@@ -22,13 +25,15 @@ use pumpdump_movement::CollisionWorld;
 use serde::Deserialize;
 
 use crate::character;
+use crate::health::PlayerHealth;
 use crate::heart::{Boosts, Heart};
 use crate::input::{self, Action};
 use crate::map::MapCollision;
-use crate::player::{self, PlayerCamera};
-use crate::rockets::{self, RocketLook};
+use crate::player::{self, Knockback, PlayerCamera};
+use crate::rockets::{self, RocketLook, Seek};
 use crate::sfx::{self, Sounds};
 use crate::targets::{Damage, Hitbox, ray_box};
+use crate::upgrades::{self, Upgrades};
 
 pub struct WeaponPlugin;
 
@@ -57,6 +62,17 @@ const PUFF_LIFE: f32 = 0.35;
 const TRACER_LIFE: f32 = 0.06;
 /// Where tracers start, relative to the eye: about where the muzzle is.
 const TRACER_START: Vec3 = Vec3::new(6.0, -5.0, -28.0);
+/// Aim assist only bends a shot that passes within this many units of a
+/// target per degree of assist.
+const ASSIST_REACH: f32 = 10.0;
+/// How far a bent single bullet turns onto its target (all the way), and a
+/// shotgun pellet (half way: the spread tightens, it doesn't vanish).
+const ASSIST_PULL_BULLET: f32 = 1.0;
+const ASSIST_PULL_PELLET: f32 = 0.5;
+/// A fast heart rate's aim assist steers rockets a little too: within this
+/// many times its angle, at this many radians per second per degree.
+const ROCKET_ASSIST_CONE: f32 = 4.0;
+const ROCKET_ASSIST_TURN: f32 = 0.12;
 
 // ---- tuning ----
 
@@ -141,7 +157,7 @@ impl WeaponsTuning {
         }
     }
 
-    fn hitscan(&self, kind: WeaponKind) -> Option<&GunTuning> {
+    pub fn hitscan(&self, kind: WeaponKind) -> Option<&GunTuning> {
         match kind {
             WeaponKind::Revolver => Some(&self.revolver),
             WeaponKind::Shotgun => Some(&self.shotgun),
@@ -389,15 +405,16 @@ fn tick_weapons(
     camera: Single<(&Transform, &ActionState<Action>), With<PlayerCamera>>,
     map: Res<MapCollision>,
     targets: Query<(Entity, &Transform, &Hitbox)>,
-    boosts: Res<Boosts>,
-    heart: Res<Heart>,
+    (boosts, upgrades): (Res<Boosts>, Res<Upgrades>),
+    (mut heart, mut health): (ResMut<Heart>, ResMut<PlayerHealth>),
     mut arsenal: ResMut<Arsenal>,
     mut fx: ResMut<GunFx>,
-    mut hits: MessageWriter<Damage>,
+    (mut hits, mut shoves): (MessageWriter<Damage>, MessageWriter<Knockback>),
 ) {
     let Some(tuning) = tunings.get(&handle.0) else {
         return;
     };
+    let tuning = &upgrades.weapons_tuning(tuning);
     let dt = time.delta_secs();
     let (eye, actions) = camera.into_inner();
     // `play!(field)` plays that sound, if the sounds are ready.
@@ -473,6 +490,11 @@ fn tick_weapons(
         ) {
             fx.hit_marker = HIT_MARKER_TIME;
             play!(chop);
+            // Bloodletter: every hit feeds you.
+            if upgrades.has(WeaponKind::Machete, 2) {
+                health.current = (health.current + upgrades::BLOODLETTER_HEAL).min(health.max);
+                heart.blood = (heart.blood + upgrades::BLOODLETTER_BLOOD).min(1.0);
+            }
         }
     }
 
@@ -507,18 +529,40 @@ fn tick_weapons(
     };
 
     if kind == WeaponKind::Launcher {
-        let launcher = LauncherTuning {
+        let mut launcher = LauncherTuning {
             direct_damage: tuning.launcher.direct_damage * boosts.damage,
             splash_damage: tuning.launcher.splash_damage * boosts.damage,
             ..tuning.launcher.clone()
         };
-        rockets::launch(
-            &mut commands,
-            &rocket_look,
-            eye.transform_point(TRACER_START * Vec3::new(1.0, 1.0, 0.6)),
-            *eye.forward(),
-            &launcher,
-        );
+        // Homing rockets chase anything in front of them; otherwise the heart
+        // rate's aim assist nudges them a little.
+        let seek = if upgrades.has(WeaponKind::Launcher, 2) {
+            Some(Seek {
+                cone: upgrades::HOMING_CONE.to_radians(),
+                turn: upgrades::HOMING_TURN,
+            })
+        } else {
+            (boosts.assist > 0.0).then(|| Seek {
+                cone: (boosts.assist * ROCKET_ASSIST_CONE).to_radians(),
+                turn: boosts.assist * ROCKET_ASSIST_TURN,
+            })
+        };
+        let from = eye.transform_point(TRACER_START * Vec3::new(1.0, 1.0, 0.6));
+        let (forward, right, up) = (*eye.forward(), *eye.right(), *eye.up());
+        if upgrades.has(WeaponKind::Launcher, 1) {
+            // Four barrels, four rockets in a tight square, sharing the damage
+            // and the shove between them.
+            launcher.direct_damage *= upgrades::QUAD_DAMAGE;
+            launcher.splash_damage *= upgrades::QUAD_DAMAGE;
+            launcher.knockback /= upgrades::QUAD_ROCKETS as f32;
+            for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                let direction = (forward + (right * x + up * y) * 0.03).normalize();
+                let at = from + (right * x + up * y) * 2.5;
+                rockets::launch(&mut commands, &rocket_look, at, direction, &launcher, seek);
+            }
+        } else {
+            rockets::launch(&mut commands, &rocket_look, from, forward, &launcher, seek);
+        }
         play!(launch);
         return;
     }
@@ -547,19 +591,84 @@ fn tick_weapons(
         spin,
     );
     let muzzle = eye.transform_point(TRACER_START);
+    let middles: Vec<(Entity, Vec3)> = targets
+        .iter()
+        .filter(|(_, _, hitbox)| hitbox.enabled)
+        .map(|(entity, transform, hitbox)| (entity, hitbox.centre(transform)))
+        .collect();
+    let clear = |from: Vec3, to: Vec3| {
+        map.0
+            .cast_ray(from, to - from)
+            .is_none_or(|hit| hit.fraction > 0.98)
+    };
+    let pull = if gun.pellets == 1 {
+        ASSIST_PULL_BULLET
+    } else {
+        ASSIST_PULL_PELLET
+    };
+    let pierce = if kind == WeaponKind::TommyGun && upgrades.has(kind, 2) {
+        upgrades::PIERCE
+    } else {
+        1
+    };
+    let ricochet = kind == WeaponKind::Revolver && upgrades.has(kind, 2);
     let mut hit_target = false;
-    for direction in pellets {
-        let (end, hit) = trace(eye.translation, direction, gun, &map, &targets, &mut hits);
-        hit_target |= hit.is_some_and(|on_target| on_target);
-        match hit {
-            Some(true) => spawn_puff(&mut commands, &look, &look.blood, end - direction * 2.0),
-            Some(false) => spawn_puff(&mut commands, &look, &look.dust, end),
-            None => {}
+    for aimed in pellets {
+        let direction = bend(
+            eye.translation,
+            aimed,
+            middles.iter().map(|&(_, middle)| middle),
+            boosts.assist,
+            pull,
+            gun.range,
+            clear,
+        )
+        .unwrap_or(aimed);
+        let shot = trace(
+            eye.translation,
+            direction,
+            gun,
+            pierce,
+            &map,
+            &targets,
+            &mut hits,
+        );
+        hit_target |= !shot.struck.is_empty();
+        for &(point, _) in &shot.struck {
+            spawn_puff(&mut commands, &look, &look.blood, point - direction * 2.0);
         }
-        // Single-bullet guns leave a tracer; a shotgun's dozen would be noise.
+        if shot.wall {
+            spawn_puff(&mut commands, &look, &look.dust, shot.end);
+        }
+        // Single-bullet guns leave a tracer (curving, if the aim assist bent
+        // it); a shotgun's dozen would be noise.
         if gun.pellets == 1 {
-            spawn_tracer(&mut commands, &look, muzzle, end);
+            spawn_curve(&mut commands, &look, muzzle, aimed, shot.end);
         }
+        // Ricochet: on to the nearest other target, if nothing's in the way.
+        if ricochet && let Some(&(point, first)) = shot.struck.first() {
+            let next = middles
+                .iter()
+                .filter(|&&(entity, middle)| {
+                    entity != first
+                        && point.distance(middle) < upgrades::RICOCHET_RANGE
+                        && clear(point, middle)
+                })
+                .min_by(|a, b| point.distance(a.1).total_cmp(&point.distance(b.1)));
+            if let Some(&(entity, middle)) = next {
+                hits.write(Damage {
+                    target: entity,
+                    amount: gun.damage,
+                    direction: (middle - point).normalize_or(direction),
+                });
+                spawn_tracer(&mut commands, &look, point, middle);
+                spawn_puff(&mut commands, &look, &look.blood, middle);
+            }
+        }
+    }
+    // Boomstick: every shot throws you backwards.
+    if kind == WeaponKind::Shotgun && upgrades.has(kind, 2) {
+        shoves.write(Knockback(-*eye.forward() * upgrades::BOOMSTICK_SHOVE));
     }
     if hit_target {
         fx.hit_marker = HIT_MARKER_TIME;
@@ -567,43 +676,112 @@ fn tick_weapons(
     }
 }
 
-/// Follow one bullet: damage the first thing with a [`Hitbox`] it reaches, if a
-/// wall doesn't come first. Returns where it stopped, and what it hit:
-/// `Some(true)` a target, `Some(false)` a wall, `None` nothing in range.
+/// Aim assist: a shot from `origin` along `direction` that would only just
+/// miss one of `targets` (their middles) bends towards it, by `pull` of the
+/// way (1 = straight at it). "Only just" means within `assist_deg` degrees and
+/// within [`ASSIST_REACH`] units per degree of it, in range and with `clear`
+/// saying nothing's in the way. The nearest such target (by angle) wins.
+/// `None` if there's nothing to bend towards.
+pub fn bend(
+    origin: Vec3,
+    direction: Vec3,
+    targets: impl Iterator<Item = Vec3>,
+    assist_deg: f32,
+    pull: f32,
+    range: f32,
+    clear: impl Fn(Vec3, Vec3) -> bool,
+) -> Option<Vec3> {
+    if assist_deg <= 0.0 {
+        return None;
+    }
+    let cone = assist_deg.to_radians();
+    let reach = assist_deg * ASSIST_REACH;
+    targets
+        .filter_map(|middle| {
+            let to = middle - origin;
+            let distance = to.length();
+            if !(1.0..=range).contains(&distance) {
+                return None;
+            }
+            let towards = to / distance;
+            let angle = direction.angle_between(towards);
+            let miss = distance * angle.sin();
+            (angle < cone && miss < reach && clear(origin, middle)).then_some((angle, towards))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, towards)| {
+            let turn = Quat::from_rotation_arc(direction, towards);
+            (Quat::IDENTITY.slerp(turn, pull.clamp(0.0, 1.0)) * direction).normalize()
+        })
+}
+
+/// Where a bullet went.
+struct Shot {
+    /// Where it stopped.
+    end: Vec3,
+    /// It stopped in a wall.
+    wall: bool,
+    /// Who it hit, and where, nearest first.
+    struck: Vec<(Vec3, Entity)>,
+}
+
+/// Follow one bullet: damage the first thing with a [`Hitbox`] it reaches (or
+/// the first `pierce` things), until a wall stops it.
 fn trace(
     origin: Vec3,
     direction: Vec3,
     gun: &GunTuning,
+    pierce: usize,
     map: &MapCollision,
     targets: &Query<(Entity, &Transform, &Hitbox)>,
     hits: &mut MessageWriter<Damage>,
-) -> (Vec3, Option<bool>) {
+) -> Shot {
     let wall = map
         .0
         .cast_ray(origin, direction * gun.range)
         .map(|hit| (hit.fraction * gun.range, hit.normal));
-    let target = targets
+    let stop = wall.map_or(gun.range, |(distance, _)| distance);
+    let mut along: Vec<(f32, Entity)> = targets
         .iter()
         .filter(|(_, _, hitbox)| hitbox.enabled)
         .filter_map(|(entity, transform, hitbox)| {
             let distance = ray_box(origin, direction, hitbox.centre(transform), hitbox.half)?;
-            (distance <= gun.range).then_some((distance, entity))
+            (distance < stop).then_some((distance, entity))
         })
-        .min_by(|a, b| a.0.total_cmp(&b.0));
-
-    match (wall, target) {
-        (_, Some((distance, entity))) if wall.is_none_or(|(w, _)| distance < w) => {
+        .collect();
+    along.sort_by(|a, b| a.0.total_cmp(&b.0));
+    along.truncate(pierce.max(1));
+    let struck: Vec<(Vec3, Entity)> = along
+        .iter()
+        .map(|&(distance, entity)| {
             hits.write(Damage {
                 target: entity,
                 amount: gun.damage,
                 direction,
             });
-            (origin + direction * distance, Some(true))
+            (origin + direction * distance, entity)
+        })
+        .collect();
+
+    if struck.len() >= pierce.max(1) {
+        // Used up on the people it went through.
+        Shot {
+            end: struck.last().map_or(origin, |&(point, _)| point),
+            wall: false,
+            struck,
         }
-        (Some((distance, normal)), _) => {
-            (origin + direction * distance + normal * 1.5, Some(false))
+    } else if let Some((distance, normal)) = wall {
+        Shot {
+            end: origin + direction * distance + normal * 1.5,
+            wall: true,
+            struck,
         }
-        _ => (origin + direction * gun.range, None),
+    } else {
+        Shot {
+            end: origin + direction * gun.range,
+            wall: false,
+            struck,
+        }
     }
 }
 
@@ -708,6 +886,25 @@ fn spawn_puff(
     ));
 }
 
+/// A tracer from `from` that sets off along `aimed` and curves round to `to`:
+/// the path of a bullet the aim assist bent. Straight if it wasn't.
+fn spawn_curve(commands: &mut Commands, look: &EffectLook, from: Vec3, aimed: Vec3, to: Vec3) {
+    const SEGMENTS: usize = 4;
+    let length = from.distance(to);
+    let straight = (to - from).normalize_or(aimed);
+    if aimed.angle_between(straight) < 0.002 {
+        spawn_tracer(commands, look, from, to);
+        return;
+    }
+    // A quadratic curve whose middle control point is straight along the aim.
+    let control = from + aimed * length * 0.5;
+    let at = |t: f32| from.lerp(control, t).lerp(control.lerp(to, t), t);
+    for k in 0..SEGMENTS {
+        let (a, b) = (k as f32 / SEGMENTS as f32, (k + 1) as f32 / SEGMENTS as f32);
+        spawn_tracer(commands, look, at(a), at(b));
+    }
+}
+
 fn spawn_tracer(commands: &mut Commands, look: &EffectLook, from: Vec3, to: Vec3) {
     if from.distance(to) < 1.0 {
         return;
@@ -805,6 +1002,7 @@ fn spawn_hud(mut commands: Commands) {
 fn update_hud(
     arsenal: Res<Arsenal>,
     fx: Res<GunFx>,
+    upgrades: Res<Upgrades>,
     handle: Res<WeaponsHandle>,
     tunings: Res<Assets<WeaponsAsset>>,
     crosshair: Single<(&mut Node, &mut BackgroundColor), With<Crosshair>>,
@@ -834,7 +1032,8 @@ fn update_hud(
         })
         .collect();
     let kind = arsenal.current;
-    let rounds = match tunings.get(&handle.0).and_then(|t| t.rules(kind)) {
+    let tuning = tunings.get(&handle.0).map(|t| upgrades.weapons_tuning(t));
+    let rounds = match tuning.and_then(|t| t.rules(kind)) {
         None => String::new(),
         Some(_) if arsenal.gun().reloading.is_some() => "  RELOADING".to_string(),
         Some(rules) => format!(
@@ -843,7 +1042,9 @@ fn update_hud(
             rules.magazine
         ),
     };
-    ammo.0 = format!("{}\n{}{rounds}", slots.join(" "), kind.name());
+    // A + for each upgrade.
+    let level = "+".repeat(upgrades.level(kind) as usize);
+    ammo.0 = format!("{}\n{}{level}{rounds}", slots.join(" "), kind.name());
 }
 
 #[cfg(test)]
@@ -964,6 +1165,102 @@ mod tests {
                 assert!(a.angle_between(*b).to_degrees() > 0.5);
             }
         }
+    }
+
+    #[test]
+    fn aim_assist_bends_near_misses_onto_the_target_and_nothing_else() {
+        let target = Vec3::new(0.0, 0.0, -1000.0);
+        let open = |_: Vec3, _: Vec3| true;
+        // 1.5 degrees off at 1000 units: about 26 units wide of the middle.
+        let near = Quat::from_rotation_y(1.5f32.to_radians()) * Vec3::NEG_Z;
+        let bent = bend(
+            Vec3::ZERO,
+            near,
+            [target].into_iter(),
+            4.5,
+            1.0,
+            9000.0,
+            open,
+        )
+        .unwrap();
+        assert!(bent.angle_between(Vec3::NEG_Z) < 1e-3, "{bent}");
+        // Half way for pellets.
+        let half = bend(
+            Vec3::ZERO,
+            near,
+            [target].into_iter(),
+            4.5,
+            0.5,
+            9000.0,
+            open,
+        )
+        .unwrap();
+        assert!((half.angle_between(Vec3::NEG_Z).to_degrees() - 0.75).abs() < 0.01);
+        // No assist, too wide an angle, too far off in units, a wall in the
+        // way, or out of range: nothing.
+        assert!(
+            bend(
+                Vec3::ZERO,
+                near,
+                [target].into_iter(),
+                0.0,
+                1.0,
+                9000.0,
+                open
+            )
+            .is_none()
+        );
+        assert!(
+            bend(
+                Vec3::ZERO,
+                near,
+                [target].into_iter(),
+                1.0,
+                1.0,
+                9000.0,
+                open
+            )
+            .is_none()
+        );
+        let far = Vec3::new(0.0, 0.0, -3000.0);
+        assert!(bend(Vec3::ZERO, near, [far].into_iter(), 4.5, 1.0, 9000.0, open).is_none());
+        assert!(
+            bend(
+                Vec3::ZERO,
+                near,
+                [target].into_iter(),
+                4.5,
+                1.0,
+                9000.0,
+                |_, _| false
+            )
+            .is_none()
+        );
+        assert!(
+            bend(
+                Vec3::ZERO,
+                near,
+                [target].into_iter(),
+                4.5,
+                1.0,
+                500.0,
+                open
+            )
+            .is_none()
+        );
+        // Of two, the one nearest the aim.
+        let other = Vec3::new(-60.0, 0.0, -1000.0);
+        let picked = bend(
+            Vec3::ZERO,
+            near,
+            [other, target].into_iter(),
+            4.5,
+            1.0,
+            9000.0,
+            open,
+        )
+        .unwrap();
+        assert!(picked.angle_between(Vec3::NEG_Z) < 1e-3);
     }
 
     #[test]

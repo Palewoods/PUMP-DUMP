@@ -21,13 +21,15 @@
     // perk. `lasts` is how long a full heart keeps you going, in seconds.
     // `damage`, `speed`: multipliers. `spread`: multiplier on weapon spread
     // (lower = more accurate). `reload`: multiplier on reload times (lower =
-    // faster). `health`: your maximum health.
+    // faster). `health`: your maximum health. `assist`: aim assist, degrees:
+    // shots that would just miss a target bend onto it (only if they pass
+    // within 10 units per degree of it, so it's a nudge, not an aimbot).
     tiers: [
-        (name: "DORMANT", bpm: 30, lasts: 40.0, damage: 1.0, spread: 1.0, health: 100.0, speed: 1.0, reload: 1.0),
-        (name: "STEADY", bpm: 60, lasts: 25.0, damage: 1.15, spread: 0.9, health: 125.0, speed: 1.05, reload: 0.9),
-        (name: "QUICK", bpm: 90, lasts: 15.0, damage: 1.3, spread: 0.8, health: 150.0, speed: 1.1, reload: 0.8),
-        (name: "POUNDING", bpm: 130, lasts: 10.0, damage: 1.5, spread: 0.7, health: 175.0, speed: 1.15, reload: 0.7),
-        (name: "RACING", bpm: 180, lasts: 6.0, damage: 1.75, spread: 0.6, health: 200.0, speed: 1.2, reload: 0.6),
+        (name: "DORMANT", bpm: 30, lasts: 40.0, damage: 1.0, spread: 1.0, health: 100.0, speed: 1.0, reload: 1.0, assist: 0.0),
+        (name: "STEADY", bpm: 60, lasts: 25.0, damage: 1.15, spread: 0.9, health: 125.0, speed: 1.05, reload: 0.9, assist: 1.5),
+        (name: "QUICK", bpm: 90, lasts: 15.0, damage: 1.3, spread: 0.8, health: 150.0, speed: 1.1, reload: 0.8, assist: 2.5),
+        (name: "POUNDING", bpm: 130, lasts: 10.0, damage: 1.5, spread: 0.7, health: 175.0, speed: 1.15, reload: 0.7, assist: 3.5),
+        (name: "RACING", bpm: 180, lasts: 6.0, damage: 1.75, spread: 0.6, health: 200.0, speed: 1.2, reload: 0.6, assist: 4.5),
     ],
 
     // Perks (top heart rate only).

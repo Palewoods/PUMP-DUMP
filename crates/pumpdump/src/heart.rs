@@ -23,6 +23,7 @@ use crate::input::{self, Action};
 use crate::player::{MovementTick, PlayerCamera, PlayerStatus};
 use crate::sfx::{self, Sounds};
 use crate::targets::{Damage, Hitbox};
+use crate::upgrades::Upgrades;
 use crate::weapon::Arsenal;
 
 pub struct HeartPlugin;
@@ -83,6 +84,8 @@ pub struct Tier {
     pub health: f32,
     pub speed: f32,
     pub reload: f32,
+    /// Aim assist, degrees: shots this close to a target bend onto it.
+    pub assist: f32,
 }
 
 #[derive(Asset, TypePath, Deref)]
@@ -174,7 +177,8 @@ pub struct Run {
     /// Index into `HeartTuning::tiers`.
     pub tier: usize,
     pub perk: Option<Perk>,
-    pub second_heart_used: bool,
+    /// Times the Second Heart has brought you back this level.
+    pub revives_used: u32,
     /// The heart rate's boosts at full power. `Boosts` (the resource) is
     /// these faded by how much blood is left.
     pub boosts: Boosts,
@@ -191,6 +195,8 @@ pub struct Boosts {
     pub reload: f32,
     pub speed: f32,
     pub max_health: f32,
+    /// Aim assist, degrees (see `weapon::bend`).
+    pub assist: f32,
 }
 
 impl Default for Boosts {
@@ -201,6 +207,7 @@ impl Default for Boosts {
             reload: 1.0,
             speed: 1.0,
             max_health: 100.0,
+            assist: 0.0,
         }
     }
 }
@@ -213,6 +220,7 @@ impl Boosts {
             reload: tier.reload,
             speed: tier.speed,
             max_health: tier.health,
+            assist: tier.assist,
         }
     }
 
@@ -228,6 +236,7 @@ impl Boosts {
             reload: fade(self.reload),
             speed: fade(self.speed),
             max_health: self.max_health,
+            assist: self.assist * p,
         }
     }
 
@@ -260,6 +269,11 @@ pub struct Heart {
     pub since_squeeze: f32,
     /// Seconds since the last Pulse shockwave.
     pub since_pulse: f32,
+    /// Seconds since the last squeeze that put blood back.
+    pub since_pump: f32,
+    /// Seconds since the last heartbeat (the sound): the animations keep time
+    /// with it.
+    pub since_beat: f32,
     /// The run's heart rate, for the sound and the animation.
     pub bpm: f32,
 }
@@ -271,6 +285,8 @@ impl Default for Heart {
             held: false,
             since_squeeze: 10.0,
             since_pulse: 10.0,
+            since_pump: 10.0,
+            since_beat: 10.0,
             bpm: 30.0,
         }
     }
@@ -336,7 +352,7 @@ fn tick_heart(
     time: Res<Time>,
     handle: Res<HeartHandle>,
     tunings: Res<Assets<HeartAsset>>,
-    run: Res<Run>,
+    (run, upgrades): (Res<Run>, Res<Upgrades>),
     sounds: Option<Res<Sounds>>,
     look: Res<PulseLook>,
     cursor: Single<&CursorOptions, With<PrimaryWindow>>,
@@ -352,6 +368,8 @@ fn tick_heart(
     let (Some(tuning), true) = (tunings.get(&handle.0), run.started) else {
         return;
     };
+    // The perk's upgrades, if any.
+    let tuning = &upgrades.perk_tuning(tuning);
     let Some(tier) = tuning.tier(run.tier) else {
         return;
     };
@@ -382,12 +400,16 @@ fn tick_heart(
     heart.drain(dt, tier.lasts);
     heart.since_squeeze += dt;
     heart.since_pulse += dt;
+    heart.since_pump += dt;
     let squeeze = heart.held
         && arsenal.drawn_for > 0.15
         && input::cursor_captured(&cursor)
         && actions.just_pressed(&Action::Fire);
     if squeeze {
         let pumped = heart.squeeze(tuning.squeeze);
+        if pumped {
+            heart.since_pump = 0.0;
+        }
         if let Some(sounds) = &sounds {
             sfx::play(&mut commands, &sounds.squelch);
         }
@@ -464,21 +486,27 @@ fn grow_pulses(
     }
 }
 
-/// The Bloodlust perk: every kill heals.
+/// The Bloodlust perk: every kill heals (and, upgraded, feeds your heart).
 fn bloodlust(
     run: Res<Run>,
+    upgrades: Res<Upgrades>,
     handle: Res<HeartHandle>,
     tunings: Res<Assets<HeartAsset>>,
     mut kills: MessageReader<EnemyKilled>,
     mut health: ResMut<PlayerHealth>,
+    mut heart: ResMut<Heart>,
 ) {
     let killed = kills.read().count();
     if killed == 0 || run.perk != Some(Perk::Bloodlust) {
         return;
     }
     if let Some(tuning) = tunings.get(&handle.0) {
+        let tuning = upgrades.perk_tuning(tuning);
         let max = health.max;
         health.current = (health.current + tuning.bloodlust_heal * killed as f32).min(max);
+        if upgrades.perk >= 2 {
+            heart.blood = (heart.blood + crate::upgrades::FRENZY_BLOOD * killed as f32).min(1.0);
+        }
     }
 }
 
@@ -488,10 +516,11 @@ fn heartbeat(
     mut commands: Commands,
     time: Res<Time>,
     run: Res<Run>,
-    heart: Res<Heart>,
+    mut heart: ResMut<Heart>,
     sounds: Option<Res<Sounds>>,
     mut until_beat: Local<f32>,
 ) {
+    heart.since_beat += time.delta_secs();
     if !run.started || heart.flatlined() {
         return;
     }
@@ -500,6 +529,7 @@ fn heartbeat(
         *until_beat += 60.0 / heart.bpm.max(1.0);
         // Don't fall behind after a pause.
         *until_beat = until_beat.max(0.0);
+        heart.since_beat = 0.0;
         if let Some(sounds) = &sounds {
             sfx::play(&mut commands, &sounds.heartbeat);
         }
@@ -629,8 +659,8 @@ fn update_hud(
 
     // The bar throbs with the heart rate.
     let t = real.elapsed_secs();
-    let beat = (t * heart.bpm / 60.0).fract();
-    let throb = (1.0 - beat * 4.0).max(0.0);
+    // In time with the heartbeat.
+    let throb = (1.0 - heart.since_beat * heart.bpm / 60.0 * 4.0).max(0.0);
     fill_colour.0 = Color::srgb(0.6 + 0.35 * throb, 0.05, 0.07);
 
     let blink = (t * 4.0).fract() < 0.5;
@@ -666,6 +696,7 @@ mod tests {
             assert!(fast.damage >= slow.damage && fast.health >= slow.health);
             assert!(fast.speed >= slow.speed);
             assert!(fast.spread <= slow.spread && fast.reload <= slow.reload);
+            assert!(fast.assist >= slow.assist);
         }
     }
 

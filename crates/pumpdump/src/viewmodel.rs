@@ -6,7 +6,14 @@
 //! Animated here: recoil, reloads (each gun its own: the shotgun breaks open,
 //! the revolver's cylinder swings out and spins, the tommy gun swaps its drum,
 //! the launcher takes a rocket at the back), raising a weapon after a switch,
-//! the machete's swing, walking bob, and the muzzle flash.
+//! the machete's swing, walking bob, and the muzzle flash. Upgraded weapons
+//! get upgraded models (see `upgrades.rs`): a four-barrel launcher, say.
+//!
+//! The heart in your hand beats lub-dub in time with the heartbeat you hear:
+//! the top chambers, then the bulk of it clenching and twisting, then the big
+//! vessels swelling as the blood goes out. A squeeze clenches the fingers and
+//! spurts blood. It darkens as it empties, and flatlined it hangs limp,
+//! twitching now and then.
 
 use std::f32::consts::PI;
 
@@ -18,6 +25,7 @@ use crate::character::{CharacterKit, SKIN, Style, limb, slab};
 use crate::heart::{Boosts, Heart, Run};
 use crate::player::{PlayerCamera, PlayerStatus, ThirdPerson};
 use crate::retro::{RetroScreen, VIEW_MODEL_LAYER};
+use crate::upgrades::Upgrades;
 use crate::weapon::{
     Arsenal, GunFx, SWING_TIME, SWITCH_TIME, WeaponKind, WeaponsAsset, WeaponsHandle,
 };
@@ -28,7 +36,7 @@ impl Plugin for ViewModelPlugin {
     fn build(&self, app: &mut App) {
         // After Startup, so the player's camera exists to attach the weapons to.
         app.add_systems(PostStartup, spawn_view_models)
-            .add_systems(Update, (animate, animate_heart));
+            .add_systems(Update, (animate, animate_heart, drip));
     }
 }
 
@@ -46,9 +54,15 @@ const MUZZLE_LIGHT: f32 = 4.0e9;
 #[derive(Component)]
 struct ViewModel;
 
-/// One weapon's model: shown while that weapon is out.
+/// One weapon's model: shown while that weapon is out. Its look: 0 as it
+/// comes, 1 upgraded (for weapons whose first upgrade changes how they look).
 #[derive(Component)]
-struct WeaponModel(WeaponKind);
+struct WeaponModel(WeaponKind, u8);
+
+/// Which look a weapon has with these upgrades.
+fn look_for(kind: WeaponKind, upgrades: &Upgrades) -> u8 {
+    u8::from(kind != WeaponKind::Revolver && upgrades.has(kind, 1))
+}
 
 #[derive(Component)]
 struct MuzzleFlash;
@@ -57,13 +71,40 @@ struct MuzzleFlash;
 #[derive(Component)]
 struct HeartModel;
 
-/// The heart itself (not the hand): throbs with the beat, squashes when squeezed.
-#[derive(Component)]
-struct HeartMuscle;
+/// The moving parts of the heart in your hand.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+enum HeartPart {
+    /// The whole heart (not the hand): sways, twitches, sags.
+    Muscle,
+    /// The bulk of it: clenches (and twists) on the second beat.
+    Ventricles,
+    /// The two lobes on top: squeeze first.
+    Atria,
+    /// The big vessels: swell as the blood goes out.
+    Vessels,
+    /// The fingers round its front: close on a squeeze.
+    Fingers,
+}
 
-/// The fingers wrapped round the front of the heart: close in on a squeeze.
+/// Where each part of the heart squeezes towards, in the heart's own space.
+const VENTRICLES_AT: Vec3 = Vec3::new(0.0, 2.0, 0.0);
+const ATRIA_AT: Vec3 = Vec3::new(0.0, 3.3, 0.5);
+const VESSELS_AT: Vec3 = Vec3::new(0.4, 3.4, 0.0);
+
+/// A drop of blood spurting out of the heart on a squeeze.
 #[derive(Component)]
-struct HeartFingers;
+struct HeartDrop {
+    velocity: Vec3,
+    life: f32,
+}
+
+/// The heart's colours (changed as it empties) and what drops are made of.
+#[derive(Resource)]
+struct HeartLook {
+    muscle: Handle<StandardMaterial>,
+    dark: Handle<StandardMaterial>,
+    drop: Handle<StandardMaterial>,
+}
 
 /// Where the heart is held, relative to the weapons' resting place: low, left
 /// of the middle, out of the way of the crosshair. And how big it's drawn.
@@ -141,8 +182,13 @@ struct FlashLight;
 
 /// Where each model sits under the view model, how big it's drawn, and where
 /// its muzzle is (in the model's own, unscaled space).
-fn placement(kind: WeaponKind) -> (Vec3, f32, Vec3) {
+fn placement(kind: WeaponKind, look: u8) -> (Vec3, f32, Vec3) {
     match kind {
+        // The quad launcher sits a little further forward, so you can see down
+        // its four tubes.
+        WeaponKind::Launcher if look == 1 => {
+            (Vec3::new(3.5, 1.5, -4.0), 0.7, Vec3::new(0.0, 1.5, -23.0))
+        }
         WeaponKind::Machete => (Vec3::new(2.0, 1.0, 1.0), 1.0, Vec3::new(0.0, 0.0, -10.0)),
         WeaponKind::Revolver => (Vec3::new(0.0, 0.5, 1.0), 1.0, Vec3::new(0.0, 0.6, -11.2)),
         WeaponKind::Shotgun => (Vec3::ZERO, 1.0, Vec3::new(0.0, 0.0, -22.0)),
@@ -171,8 +217,76 @@ struct Stuff {
 type Part = (Piece, Handle<StandardMaterial>, Transform);
 
 /// The boxes making up one weapon and the hands holding it, in its own space
-/// (pointing along -Z).
-fn parts(kind: WeaponKind, m: &Stuff) -> Vec<Part> {
+/// (pointing along -Z), as it comes (`look` 0) or upgraded (1).
+fn parts(kind: WeaponKind, look: u8, m: &Stuff) -> Vec<Part> {
+    let mut boxes = base_parts(kind, m);
+    if look == 0 {
+        return boxes;
+    }
+    let v = Vec3::new;
+    let frame =
+        |material: &Handle<StandardMaterial>, t: Transform| (Piece::Frame, material.clone(), t);
+    match kind {
+        // The cleaver: a broader, longer blade.
+        WeaponKind::Machete => {
+            boxes.retain(|(_, material, _)| *material != m.steel);
+            boxes.push(frame(
+                &m.steel,
+                limb(v(0.0, -1.2, 1.5), v(0.0, 1.4, -17.0), Vec2::new(0.6, 5.4)),
+            ));
+        }
+        WeaponKind::Revolver => {}
+        // Quad barrel: another barrel either side, and shells for them.
+        WeaponKind::Shotgun => {
+            for x in [-3.0, 3.0] {
+                boxes.push((
+                    Piece::Barrels,
+                    m.metal.clone(),
+                    slab(v(x, 0.0, -10.5), v(1.6, 1.6, 21.0)),
+                ));
+                boxes.push((
+                    Piece::Shells,
+                    m.red.clone(),
+                    slab(v(x, 0.0, -2.0), v(1.2, 1.2, 2.6)),
+                ));
+                boxes.push((
+                    Piece::Shells,
+                    m.brass.clone(),
+                    slab(v(x, 0.0, -0.4), v(1.4, 1.4, 0.7)),
+                ));
+            }
+        }
+        // The big drum.
+        WeaponKind::TommyGun => {
+            boxes.retain(|(piece, _, _)| *piece != Piece::Drum);
+            let middle = DRUM - Vec3::Y;
+            boxes.push((Piece::Drum, m.metal.clone(), slab(middle, v(2.2, 8.6, 8.6))));
+            boxes.push((Piece::Drum, m.steel.clone(), slab(middle, v(2.5, 2.6, 2.6))));
+        }
+        // Four tubes in a square, a red warhead peeking out of each.
+        WeaponKind::Launcher => {
+            boxes.retain(|(piece, material, t)| {
+                !(*piece == Piece::Frame
+                    && (*material == m.olive || *material == m.red || t.translation.z.abs() > 11.0))
+            });
+            for (x, y) in [(-2.1, -0.6), (2.1, -0.6), (-2.1, 3.6), (2.1, 3.6)] {
+                boxes.push(frame(&m.olive, slab(v(x, y, -5.0), v(2.6, 2.6, 32.0))));
+                boxes.push(frame(&m.red, slab(v(x, y, -21.6), v(1.4, 1.4, 1.4))));
+                // A collar and a dark bore at the back of each tube: what you
+                // see of it from behind.
+                boxes.push(frame(&m.metal, slab(v(x, y, 10.6), v(3.0, 3.0, 1.2))));
+                boxes.push(frame(&m.leather, slab(v(x, y, 11.25), v(1.6, 1.6, 0.1))));
+            }
+            // Bands holding the tubes together.
+            for z in [-19.0, -5.0] {
+                boxes.push(frame(&m.metal, slab(v(0.0, 1.5, z), v(7.6, 7.6, 0.8))));
+            }
+        }
+    }
+    boxes
+}
+
+fn base_parts(kind: WeaponKind, m: &Stuff) -> Vec<Part> {
     let v = Vec3::new;
     let tilt = |t: Transform, x: f32| t.with_rotation(Quat::from_rotation_x(x));
     let p = |material: &Handle<StandardMaterial>, t: Transform| (Piece::Frame, material.clone(), t);
@@ -491,11 +605,20 @@ fn spawn_view_models(
         })
     };
     let heart_stuff = HeartStuff {
-        muscle: wet(Color::srgb(0.5, 0.04, 0.06), 0.35),
-        dark: wet(Color::srgb(0.32, 0.03, 0.05), 0.45),
+        muscle: wet(ALIVE, 0.35),
+        dark: wet(ALIVE_DARK, 0.45),
         artery: wet(Color::srgb(0.55, 0.12, 0.2), 0.4),
         vein: wet(Color::srgb(0.2, 0.08, 0.25), 0.5),
     };
+    commands.insert_resource(HeartLook {
+        muscle: heart_stuff.muscle.clone(),
+        dark: heart_stuff.dark.clone(),
+        drop: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.6, 0.02, 0.04),
+            unlit: true,
+            ..default()
+        }),
+    });
 
     commands.entity(*eye).with_children(|eye| {
         // Draws only the weapons' layer, on top of the world camera's picture.
@@ -533,15 +656,19 @@ fn spawn_view_models(
             Visibility::default(),
         ))
         .with_children(|view| {
-            for kind in WeaponKind::ALL {
-                let (offset, scale, _) = placement(kind);
+            let looks = WeaponKind::ALL
+                .into_iter()
+                .flat_map(|kind| [(kind, 0), (kind, 1)])
+                .filter(|&(kind, look)| look == 0 || kind != WeaponKind::Revolver);
+            for (kind, look) in looks {
+                let (offset, scale, _) = placement(kind, look);
                 view.spawn((
-                    WeaponModel(kind),
+                    WeaponModel(kind, look),
                     Transform::from_translation(offset).with_scale(Vec3::splat(scale)),
                     Visibility::Hidden,
                 ))
                 .with_children(|model| {
-                    let parts = parts(kind, &stuff);
+                    let parts = parts(kind, look, &stuff);
                     for piece in Piece::ALL {
                         let mut boxes = parts.iter().filter(|(p, _, _)| *p == piece).peekable();
                         if boxes.peek().is_none() {
@@ -622,32 +749,91 @@ fn spawn_heart(
         Visibility::Hidden,
     ))
     .with_children(|held| {
-        held.spawn((HeartMuscle, Transform::default(), Visibility::Inherited))
-            .with_children(|heart| {
-                // The muscle, two lobes on top, a pointed bottom.
-                heart.spawn(part(&h.muscle, slab(v(0.0, 0.0, 0.0), v(5.5, 6.5, 5.0))));
-                heart.spawn(part(&h.dark, slab(v(-1.7, 3.4, 0.4), v(2.8, 2.6, 3.0))));
-                heart.spawn(part(&h.dark, slab(v(1.6, 3.2, 0.7), v(2.6, 2.4, 2.8))));
-                heart.spawn(part(
-                    &h.muscle,
-                    slab(v(0.5, -3.6, 0.0), v(3.2, 2.2, 3.2))
-                        .with_rotation(Quat::from_rotation_z(0.3)),
-                ));
-                // The big vessels out of the top, and one across the front.
-                heart.spawn(part(
-                    &h.artery,
-                    limb(v(0.6, 3.4, 0.0), v(1.0, 7.6, -0.6), Vec2::splat(1.7)),
-                ));
-                heart.spawn(part(
-                    &h.artery,
-                    limb(v(1.0, 7.2, -0.6), v(2.9, 8.3, 0.2), Vec2::splat(1.0)),
-                ));
-                heart.spawn(part(
-                    &h.vein,
-                    limb(v(-1.8, 3.6, 0.2), v(-2.8, 7.0, 1.2), Vec2::splat(1.3)),
-                ));
-                heart.spawn(part(&h.vein, slab(v(0.6, 0.6, -2.6), v(0.5, 4.5, 0.4))));
-            });
+        // Each moving part hangs off the point it squeezes towards, so its
+        // boxes are placed relative to that.
+        let at = |t: Transform, pivot: Vec3| t.with_translation(t.translation - pivot);
+        held.spawn((
+            HeartPart::Muscle,
+            Transform::default(),
+            Visibility::Inherited,
+        ))
+        .with_children(|heart| {
+            // The bulk: the muscle, its pointed bottom, a vein across the front.
+            heart
+                .spawn((
+                    HeartPart::Ventricles,
+                    Transform::from_translation(VENTRICLES_AT),
+                    Visibility::Inherited,
+                ))
+                .with_children(|bulk| {
+                    let p = VENTRICLES_AT;
+                    bulk.spawn(part(
+                        &h.muscle,
+                        at(slab(v(0.0, 0.0, 0.0), v(5.5, 6.5, 5.0)), p),
+                    ));
+                    bulk.spawn(part(
+                        &h.muscle,
+                        at(
+                            slab(v(0.5, -3.6, 0.0), v(3.2, 2.2, 3.2))
+                                .with_rotation(Quat::from_rotation_z(0.3)),
+                            p,
+                        ),
+                    ));
+                    bulk.spawn(part(
+                        &h.vein,
+                        at(slab(v(0.6, 0.6, -2.6), v(0.5, 4.5, 0.4)), p),
+                    ));
+                });
+            // Two lobes on top.
+            heart
+                .spawn((
+                    HeartPart::Atria,
+                    Transform::from_translation(ATRIA_AT),
+                    Visibility::Inherited,
+                ))
+                .with_children(|lobes| {
+                    let p = ATRIA_AT;
+                    lobes.spawn(part(
+                        &h.dark,
+                        at(slab(v(-1.7, 3.4, 0.4), v(2.8, 2.6, 3.0)), p),
+                    ));
+                    lobes.spawn(part(
+                        &h.dark,
+                        at(slab(v(1.6, 3.2, 0.7), v(2.6, 2.4, 2.8)), p),
+                    ));
+                });
+            // The big vessels out of the top.
+            heart
+                .spawn((
+                    HeartPart::Vessels,
+                    Transform::from_translation(VESSELS_AT),
+                    Visibility::Inherited,
+                ))
+                .with_children(|vessels| {
+                    let p = VESSELS_AT;
+                    vessels.spawn(part(
+                        &h.artery,
+                        at(
+                            limb(v(0.6, 3.4, 0.0), v(1.0, 7.6, -0.6), Vec2::splat(1.7)),
+                            p,
+                        ),
+                    ));
+                    vessels.spawn(part(
+                        &h.artery,
+                        at(
+                            limb(v(1.0, 7.2, -0.6), v(2.9, 8.3, 0.2), Vec2::splat(1.0)),
+                            p,
+                        ),
+                    ));
+                    vessels.spawn(part(
+                        &h.vein,
+                        at(
+                            limb(v(-1.8, 3.6, 0.2), v(-2.8, 7.0, 1.2), Vec2::splat(1.3)),
+                            p,
+                        ),
+                    ));
+                });
+        });
         // The hand: palm under, thumb up the side, sleeve back out of view.
         held.spawn(part(&m.skin, slab(v(0.0, -4.4, 0.5), v(6.2, 1.8, 5.6))));
         held.spawn(part(&m.skin, slab(v(-3.4, -0.5, 0.6), v(1.1, 4.0, 1.3))));
@@ -656,51 +842,185 @@ fn spawn_heart(
             &m.coat,
             limb(v(0.0, -5.4, 2.5), v(-6.0, -11.0, 16.0), Vec2::splat(5.4)),
         ));
-        held.spawn((HeartFingers, Transform::default(), Visibility::Inherited))
-            .with_children(|fingers| {
-                for x in [-2.4, -0.8, 0.8, 2.4] {
-                    fingers.spawn(part(&m.skin, slab(v(x, -1.6, -2.9), v(1.0, 4.6, 1.0))));
-                    fingers.spawn(part(&m.rot, slab(v(x, 0.9, -2.7), v(0.8, 0.8, 0.8))));
-                }
-            });
+        held.spawn((
+            HeartPart::Fingers,
+            Transform::default(),
+            Visibility::Inherited,
+        ))
+        .with_children(|fingers| {
+            for x in [-2.4, -0.8, 0.8, 2.4] {
+                fingers.spawn(part(&m.skin, slab(v(x, -1.6, -2.9), v(1.0, 4.6, 1.0))));
+                fingers.spawn(part(&m.rot, slab(v(x, 0.9, -2.7), v(0.8, 0.8, 0.8))));
+            }
+        });
     });
 }
 
-/// Show the heart while it's held. It throbs with the heart rate and squashes
-/// when squeezed, the fingers closing in.
+/// The heart's colours full of blood, and empty.
+const ALIVE: Color = Color::srgb(0.55, 0.04, 0.06);
+const ALIVE_DARK: Color = Color::srgb(0.34, 0.03, 0.05);
+const DEAD: Color = Color::srgb(0.2, 0.08, 0.11);
+const DEAD_DARK: Color = Color::srgb(0.12, 0.05, 0.08);
+/// Where blood spurts from (the top of the big artery), in the held heart's
+/// space, and how fast drops fall (units/s², in that space).
+const SPURT_FROM: Vec3 = Vec3::new(1.0, 8.0, -0.6);
+const DROP_GRAVITY: f32 = 90.0;
+const DROP_LIFE: f32 = 0.5;
+
+/// 0 -> 1 -> 0: up (eased) from `start` to `peak`, down again by `end`.
+fn pulse(t: f32, start: f32, peak: f32, end: f32) -> f32 {
+    if t <= start || t >= end {
+        0.0
+    } else if t < peak {
+        ease((t - start) / (peak - start))
+    } else {
+        1.0 - ease((t - peak) / (end - peak))
+    }
+}
+
+/// How hard each part of the heart is working `since` seconds into a beat
+/// that lasts `period` seconds: (top chambers, the bulk, the vessels). The
+/// lub (the top) comes first, then the dub (the bulk), then the blood goes out.
+/// A real heart's squeeze takes about as long however fast it beats (only the
+/// rest between beats shrinks); at the fastest rates it's hurried a little.
+fn beat(since: f32, period: f32) -> (f32, f32, f32) {
+    let k = (period / 0.8).min(1.0);
+    (
+        pulse(since, 0.0, 0.05 * k, 0.14 * k),
+        pulse(since, 0.09 * k, 0.17 * k, 0.4 * k),
+        pulse(since, 0.15 * k, 0.24 * k, 0.5 * k),
+    )
+}
+
+/// Show the heart while it's held, and work it: see the module notes.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn animate_heart(
+    mut commands: Commands,
     time: Res<Time>,
     heart: Res<Heart>,
-    mut model: Single<&mut Visibility, With<HeartModel>>,
-    mut muscle: Single<&mut Transform, (With<HeartMuscle>, Without<HeartFingers>)>,
-    mut fingers: Single<&mut Transform, (With<HeartFingers>, Without<HeartMuscle>)>,
+    look: Res<HeartLook>,
+    kit: Res<CharacterKit>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    model: Single<(Entity, &mut Visibility), With<HeartModel>>,
+    mut parts: Query<(&HeartPart, &mut Transform)>,
+    mut last_pump: Local<f32>,
 ) {
-    **model = if heart.held {
+    let (model, mut shown) = model.into_inner();
+    *shown = if heart.held {
         Visibility::Inherited
     } else {
         Visibility::Hidden
     };
-    // A sharp throb at the start of each beat, while there's blood to beat.
-    let beat = (time.elapsed_secs() * heart.bpm / 60.0).fract();
-    let throb = if heart.flatlined() {
+    let flat = heart.flatlined();
+    // Weaker beats as the blood runs out; none at all when it's gone.
+    let strength = if flat {
         0.0
     } else {
-        (1.0 - beat * 5.0).max(0.0)
+        0.5 + 0.5 * (heart.blood / 0.5).min(1.0)
     };
-    // The squeeze: in and back out over a fraction of a second.
-    const SQUEEZE_TIME: f32 = 0.18;
-    let squash = if heart.since_squeeze < SQUEEZE_TIME {
-        (heart.since_squeeze / SQUEEZE_TIME * PI).sin()
+    let (atria, bulk, vessels) = beat(heart.since_beat, 60.0 / heart.bpm.max(1.0));
+    let (atria, bulk, vessels) = (atria * strength, bulk * strength, vessels * strength);
+    // A squeeze: hard in, slower out.
+    let squeeze = pulse(heart.since_squeeze, 0.0, 0.05, 0.3);
+    // Flatlined, it sags, and every so often twitches.
+    let now = time.elapsed_secs();
+    let twitch_at = now % 1.7;
+    let twitch = if flat && twitch_at < 0.4 {
+        (now * 60.0).sin() * 0.05 * (1.0 - twitch_at / 0.4)
     } else {
         0.0
     };
-    let swell = 1.0 + 0.07 * throb;
-    muscle.scale = Vec3::new(
-        swell * (1.0 - 0.25 * squash),
-        swell * (1.0 - 0.12 * squash),
-        swell * (1.0 - 0.25 * squash),
-    );
-    fingers.translation = Vec3::new(0.0, 0.0, 0.8 * squash);
+    let sag = if flat { 1.0 } else { 0.0 };
+
+    for (part, mut transform) in &mut parts {
+        match part {
+            HeartPart::Muscle => {
+                transform.translation = Vec3::new(twitch * 4.0, 0.25 * bulk - 0.4 * sag, 0.0);
+                transform.rotation = Quat::from_euler(EulerRot::XYZ, 0.15 * sag, 0.0, twitch);
+                transform.scale = Vec3::new(1.0 + 0.03 * sag, 1.0 - 0.06 * sag, 1.0 + 0.03 * sag);
+            }
+            HeartPart::Ventricles => {
+                let squash = 0.14 * bulk + 0.3 * squeeze;
+                transform.scale = Vec3::new(1.0 - squash, 1.0 - 0.45 * squash, 1.0 - squash);
+                // Hearts wring as they squeeze.
+                transform.rotation = Quat::from_rotation_y(0.18 * bulk - 0.1 * squeeze);
+            }
+            HeartPart::Atria => {
+                transform.scale = Vec3::splat(1.0 - 0.22 * atria - 0.2 * squeeze);
+                transform.translation = ATRIA_AT - Vec3::Y * 0.3 * atria;
+            }
+            HeartPart::Vessels => {
+                let swell = 0.45 * vessels + 0.35 * squeeze;
+                transform.scale = Vec3::new(1.0 + swell, 1.0 + 0.1 * swell, 1.0 + swell);
+            }
+            HeartPart::Fingers => {
+                transform.translation = Vec3::new(0.0, 0.0, 0.9 * squeeze + 0.12 * bulk);
+                transform.rotation = Quat::from_rotation_x(-0.3 * squeeze);
+            }
+        }
+    }
+
+    // It darkens as it empties, and flushes for a moment with each squeeze.
+    if heart.held {
+        let full = heart.blood.sqrt();
+        let flush = 0.15 * squeeze;
+        let mix = |empty: Color, alive: Color| {
+            let c = empty.mix(&alive, full).to_srgba();
+            Color::srgb(c.red + flush, c.green, c.blue)
+        };
+        if let Some(mut material) = materials.get_mut(&look.muscle) {
+            material.base_color = mix(DEAD, ALIVE);
+        }
+        if let Some(mut material) = materials.get_mut(&look.dark) {
+            material.base_color = mix(DEAD_DARK, ALIVE_DARK);
+        }
+    }
+
+    // A squeeze that put blood back spurts some out of the top.
+    if heart.since_pump < *last_pump && heart.held {
+        commands.entity(model).with_children(|held| {
+            for k in 0..7 {
+                let spread = k as f32 * 2.4; // golden angle
+                let velocity = Vec3::new(
+                    spread.cos() * 7.0,
+                    20.0 + (k % 3) as f32 * 5.0,
+                    spread.sin() * 5.0,
+                );
+                held.spawn((
+                    HeartDrop {
+                        velocity,
+                        life: DROP_LIFE,
+                    },
+                    Mesh3d(kit.cube()),
+                    MeshMaterial3d(look.drop.clone()),
+                    Transform::from_translation(SPURT_FROM)
+                        .with_scale(Vec3::splat(0.6 + 0.1 * (k % 3) as f32)),
+                    RenderLayers::layer(VIEW_MODEL_LAYER),
+                    NotShadowCaster,
+                ));
+            }
+        });
+    }
+    *last_pump = heart.since_pump;
+}
+
+/// Spurted drops fly, fall, shrink and go.
+fn drip(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut drops: Query<(Entity, &mut HeartDrop, &mut Transform)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut drop, mut transform) in &mut drops {
+        drop.life -= dt;
+        if drop.life <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        drop.velocity.y -= DROP_GRAVITY * dt;
+        transform.translation += drop.velocity * dt;
+        transform.scale = Vec3::splat(0.7 * (drop.life / DROP_LIFE).sqrt());
+    }
 }
 
 /// 0 -> 1 with a smooth start and end.
@@ -884,8 +1204,7 @@ fn animate(
     status: Res<PlayerStatus>,
     third_person: Res<ThirdPerson>,
     heart: Res<Heart>,
-    boosts: Res<Boosts>,
-    run: Res<Run>,
+    (boosts, run, upgrades): (Res<Boosts>, Res<Run>, Res<Upgrades>),
     mut fx: ResMut<GunFx>,
     mut bob_phase: Local<f32>,
     view: Single<
@@ -995,12 +1314,12 @@ fn animate(
 
     for (model, mut transform, mut visibility) in &mut models {
         // With the heart in hand, every weapon is put away.
-        *visibility = if model.0 == shown && !heart.held {
+        *visibility = if model.0 == shown && model.1 == look_for(shown, &upgrades) && !heart.held {
             Visibility::Inherited
         } else {
             Visibility::Hidden
         };
-        let (offset, _, _) = placement(model.0);
+        let (offset, _, _) = placement(model.0, model.1);
         if model.0 == WeaponKind::Machete && swinging {
             // A slash from upper right to lower left.
             let t = ease(arsenal.since_swing / SWING_TIME);
@@ -1025,7 +1344,7 @@ fn animate(
     }
 
     let flashing = fx.flash > 0.0 && !swinging && !heart.held;
-    let (offset, scale, muzzle) = placement(arsenal.current);
+    let (offset, scale, muzzle) = placement(arsenal.current, look_for(arsenal.current, &upgrades));
     let (mut flash_at, mut flash_shown) = flash.into_inner();
     flash_at.translation = offset + muzzle * scale;
     // Bigger flash for bigger guns.
@@ -1049,24 +1368,64 @@ mod tests {
 
     #[test]
     fn every_weapon_has_a_model() {
-        // Materials don't matter here: default handles will do.
-        let stuff = Stuff {
-            metal: Handle::default(),
-            steel: Handle::default(),
-            wood: Handle::default(),
-            leather: Handle::default(),
-            olive: Handle::default(),
-            red: Handle::default(),
-            brass: Handle::default(),
-            skin: Handle::default(),
-            rot: Handle::default(),
-            coat: Handle::default(),
-        };
+        let stuff = test_stuff();
         for kind in WeaponKind::ALL {
-            let boxes = parts(kind, &stuff);
-            assert!(boxes.len() >= 6, "{kind:?}");
-            assert!(boxes.iter().all(|(_, _, t)| t.scale.is_finite()));
+            for look in [0, 1] {
+                let boxes = parts(kind, look, &stuff);
+                assert!(boxes.len() >= 6, "{kind:?}");
+                assert!(boxes.iter().all(|(_, _, t)| t.scale.is_finite()));
+            }
         }
+    }
+
+    /// Materials that can be told apart, without an app to make real ones.
+    fn test_stuff() -> Stuff {
+        let handle = |n: u128| Handle::from(bevy::asset::uuid::Uuid::from_u128(n));
+        Stuff {
+            metal: handle(1),
+            steel: handle(2),
+            wood: handle(3),
+            leather: handle(4),
+            olive: handle(5),
+            red: handle(6),
+            brass: handle(7),
+            skin: handle(8),
+            rot: handle(9),
+            coat: handle(10),
+        }
+    }
+
+    #[test]
+    fn the_quad_launcher_has_four_barrels() {
+        let stuff = test_stuff();
+        let tubes = |look| {
+            parts(WeaponKind::Launcher, look, &stuff)
+                .iter()
+                .filter(|(piece, material, t)| {
+                    *piece == Piece::Frame && *material == stuff.olive && t.scale.z > 20.0
+                })
+                .count()
+        };
+        assert_eq!(tubes(0), 1);
+        assert_eq!(tubes(1), 4);
+    }
+
+    #[test]
+    fn the_heart_beats_lub_then_dub_and_rests_between() {
+        let period = 60.0 / 60.0;
+        assert_eq!(beat(0.0, period), (0.0, 0.0, 0.0));
+        assert_eq!(beat(0.9, period), (0.0, 0.0, 0.0));
+        let peak = |part: fn((f32, f32, f32)) -> f32| {
+            (0..100)
+                .map(|i| i as f32 * 0.01)
+                .max_by(|&a, &b| part(beat(a, period)).total_cmp(&part(beat(b, period))))
+                .unwrap()
+        };
+        let (atria, bulk, vessels) = (peak(|b| b.0), peak(|b| b.1), peak(|b| b.2));
+        assert!(atria < bulk && bulk < vessels, "{atria} {bulk} {vessels}");
+        // At 180 BPM the squeeze still fits in the beat.
+        let fast = 60.0 / 180.0;
+        assert_eq!(beat(fast - 0.01, fast), (0.0, 0.0, 0.0));
     }
 
     #[test]

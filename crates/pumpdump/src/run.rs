@@ -1,6 +1,6 @@
 //! The menus and the flow of a game: the title screen, picking a level, a
 //! heart rate (and, at the fastest, a perk), playing, pausing, dying, and
-//! clearing a level.
+//! clearing a level, which earns an upgrade (see `upgrades.rs`).
 //!
 //! While a menu is up the game world is paused: virtual time stops, so the
 //! fixed tick (movement, weapons, enemies) doesn't run at all. Behind the title
@@ -21,6 +21,7 @@ use crate::levels::{
 };
 use crate::player::{CONTROLS, Showcase};
 use crate::sfx::{self, Sounds};
+use crate::upgrades::{MAX_LEVEL, Offer, Upgrades};
 use crate::weapon::Arsenal;
 
 pub struct RunPlugin;
@@ -54,6 +55,9 @@ enum Screen {
     Perk,
     Paused,
     Died,
+    /// Level cleared: pick an upgrade...
+    Upgrade,
+    /// ...then go on.
     Cleared,
 }
 
@@ -62,13 +66,16 @@ impl Screen {
     fn in_game(self) -> bool {
         matches!(
             self,
-            Screen::Hidden | Screen::Paused | Screen::Died | Screen::Cleared
+            Screen::Hidden | Screen::Paused | Screen::Died | Screen::Upgrade | Screen::Cleared
         )
     }
 
     /// Big cards side by side, rather than a list of buttons.
     fn cards(self) -> bool {
-        matches!(self, Screen::Levels | Screen::HeartRate | Screen::Perk)
+        matches!(
+            self,
+            Screen::Levels | Screen::HeartRate | Screen::Perk | Screen::Upgrade
+        )
     }
 
     /// Where Esc / B goes from here.
@@ -94,6 +101,8 @@ struct Menu {
     /// The heart rate and perk picked, kept for retries and the next level.
     tier: usize,
     perk: Option<Perk>,
+    /// The upgrade just picked, for the level-clear screen.
+    got: Option<&'static str>,
 }
 
 impl Default for Menu {
@@ -105,6 +114,7 @@ impl Default for Menu {
             level: 1,
             tier: 0,
             perk: None,
+            got: None,
         }
     }
 }
@@ -207,7 +217,13 @@ fn spawn_menu(mut commands: Commands) {
 }
 
 /// The label for each choice on a screen.
-fn choices(screen: Screen, tuning: &HeartTuning, current: &CurrentLevel) -> Vec<String> {
+fn choices(
+    screen: Screen,
+    tuning: &HeartTuning,
+    current: &CurrentLevel,
+    upgrades: &Upgrades,
+    perk: Option<Perk>,
+) -> Vec<String> {
     let list = |items: &[&str]| items.iter().map(|s| s.to_string()).collect();
     match screen {
         Screen::Hidden => Vec::new(),
@@ -228,8 +244,13 @@ fn choices(screen: Screen, tuning: &HeartTuning, current: &CurrentLevel) -> Vec<
                 .enumerate()
                 .map(|(i, t)| {
                     let perk = if i == last { "\n\n+ PICK A PERK" } else { "" };
+                    let assist = if t.assist > 0.0 {
+                        format!("{:.1} DEG", t.assist)
+                    } else {
+                        "NONE".to_string()
+                    };
                     format!(
-                        "{}  {}\n{} BPM\nlasts {:.0} s per fill\n\nDAMAGE x{:.2}\nACCURACY +{:.0}%\nHEALTH {:.0}\nSPEED x{:.2}\nRELOAD {:.0}% faster{perk}",
+                        "{}  {}\n{} BPM\nlasts {:.0} s per fill\n\nDAMAGE x{:.2}\nACCURACY +{:.0}%\nHEALTH {:.0}\nSPEED x{:.2}\nRELOAD {:.0}% faster\nAIM ASSIST {assist}{perk}",
                         i + 1,
                         t.name,
                         t.bpm,
@@ -250,6 +271,22 @@ fn choices(screen: Screen, tuning: &HeartTuning, current: &CurrentLevel) -> Vec<
             .collect(),
         Screen::Paused => list(&["RESUME", "RESTART LEVEL", "MAIN MENU"]),
         Screen::Died => list(&["RETRY", "NEW HEART RATE", "MAIN MENU"]),
+        Screen::Upgrade => upgrades
+            .offers(perk)
+            .into_iter()
+            .enumerate()
+            .map(|(i, offer)| {
+                let (name, what, level) = upgrades.describe(offer);
+                let thing = match offer {
+                    Offer::Weapon(kind) => kind.name(),
+                    Offer::Perk(perk) => perk.name(),
+                };
+                format!(
+                    "{}  {thing}\n{name}\n\n{what}\n\nLEVEL {level} OF {MAX_LEVEL}",
+                    i + 1
+                )
+            })
+            .collect(),
         Screen::Cleared => match next_level(current.index) {
             Some(next) => vec![
                 format!("NEXT: {}", levels::info(next).0),
@@ -267,7 +304,12 @@ fn next_level(index: usize) -> Option<usize> {
 }
 
 /// The line (or lines) under the title.
-fn subtitle(screen: Screen, current: &CurrentLevel, stats: &LevelStats) -> String {
+fn subtitle(
+    screen: Screen,
+    current: &CurrentLevel,
+    stats: &LevelStats,
+    got: Option<&str>,
+) -> String {
     let (name, _) = levels::info(current.index);
     let record = format!(
         "Time {}    Kills {}",
@@ -282,8 +324,12 @@ fn subtitle(screen: Screen, current: &CurrentLevel, stats: &LevelStats) -> Strin
         Screen::HeartRate => "Pick how fast your heart beats.\nFaster means more squeezing, and more power.".to_string(),
         Screen::Perk => "A racing heart. Pick a perk.".to_string(),
         Screen::Died => format!("{name}\n\n{record}"),
+        Screen::Upgrade => format!("{name}\n\n{record}\n\nPick an upgrade."),
         Screen::Cleared => match next_level(current.index) {
-            Some(_) => format!("{name}\n\n{record}"),
+            Some(_) => match got {
+                Some(got) => format!("{name}\n\n{record}\n\nNew: {got}"),
+                None => format!("{name}\n\n{record}"),
+            },
             None => format!("{name}\n\n{record}\n\nYou made it out. For now."),
         },
     }
@@ -294,7 +340,7 @@ fn heading(screen: Screen) -> &'static str {
     match screen {
         Screen::Paused => "PAUSED",
         Screen::Died => "YOU DIED",
-        Screen::Cleared => "LEVEL CLEARED",
+        Screen::Upgrade | Screen::Cleared => "LEVEL CLEARED",
         Screen::Controls => "CONTROLS",
         Screen::Levels => "LEVELS",
         _ => "PUMP&DUMP",
@@ -312,6 +358,7 @@ fn build_menu(
     tunings: Res<Assets<HeartAsset>>,
     current: Res<CurrentLevel>,
     stats: Res<LevelStats>,
+    upgrades: Res<Upgrades>,
     root: Single<(&mut Visibility, &mut BackgroundColor), (With<MenuRoot>, Without<Choice>)>,
     title: Single<(&mut Text, &mut TextFont), (With<MenuTitle>, Without<MenuSubtitle>)>,
     subtitle_text: Single<
@@ -350,12 +397,12 @@ fn build_menu(
     let Some(tuning) = tunings.get(&handle.0) else {
         return;
     };
-    let labels = choices(screen, tuning, &current);
+    let labels = choices(screen, tuning, &current, &upgrades, menu.perk);
     if menu.built != Some((screen, labels.len())) {
         menu.built = Some((screen, labels.len()));
         title.0 = heading(screen).to_string();
         let (mut subtitle_line, mut subtitle_font) = subtitle_text.into_inner();
-        subtitle_line.0 = subtitle(screen, &current, &stats);
+        subtitle_line.0 = subtitle(screen, &current, &stats, menu.got);
         // The controls are a lot of text: smaller.
         let small = matches!(screen, Screen::Controls | Screen::Paused);
         subtitle_font.font_size = FontSize::Px(if small { 15.0 } else { 24.0 });
@@ -506,6 +553,10 @@ fn menu_input(
         KeyCode::Digit3,
         KeyCode::Digit4,
         KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
     ];
     for (i, key) in digits.iter().enumerate().take(count) {
         if keys.just_pressed(*key) {
@@ -596,6 +647,7 @@ fn apply_pick(
     mut heart: ResMut<Heart>,
     mut health: ResMut<PlayerHealth>,
     mut arsenal: ResMut<Arsenal>,
+    mut upgrades: ResMut<Upgrades>,
     mut time: ResMut<Time<Virtual>>,
     mut cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
     mut loads: MessageWriter<LoadLevel>,
@@ -631,9 +683,16 @@ fn apply_pick(
         Screen::Hidden => Then::Stay,
         Screen::Title => {
             match choice {
-                0 => pick_level(&mut menu, 1),
+                // A fresh start: no upgrades.
+                0 => {
+                    *upgrades = Upgrades::default();
+                    pick_level(&mut menu, 1);
+                }
                 1 => go(&mut menu, Screen::Levels),
-                2 => pick_level(&mut menu, TRAINING),
+                2 => {
+                    *upgrades = Upgrades::default();
+                    pick_level(&mut menu, TRAINING);
+                }
                 3 => go(&mut menu, Screen::Controls),
                 _ => {
                     exit.write(AppExit::Success);
@@ -642,6 +701,7 @@ fn apply_pick(
             Then::Stay
         }
         Screen::Levels => {
+            *upgrades = Upgrades::default();
             pick_level(&mut menu, (choice + 1).min(COUNT - 1));
             Then::Stay
         }
@@ -680,6 +740,13 @@ fn apply_pick(
             }
             _ => Then::MainMenu,
         },
+        Screen::Upgrade => {
+            if let Some(&offer) = upgrades.offers(menu.perk).get(choice) {
+                menu.got = Some(upgrades.take(offer));
+            }
+            go(&mut menu, Screen::Cleared);
+            Then::Stay
+        }
         Screen::Cleared => match (next_level(current.index), choice) {
             (Some(next), 0) => {
                 menu.level = next;
@@ -708,9 +775,14 @@ fn apply_pick(
                 started: true,
                 tier: menu.tier,
                 perk: menu.perk,
-                second_heart_used: false,
+                revives_used: 0,
                 boosts: Boosts::from_tier(tier),
             };
+            // A different perk starts its upgrades again.
+            if upgrades.perk_for != menu.perk {
+                upgrades.perk = 0;
+                upgrades.perk_for = menu.perk;
+            }
             *boosts = run.boosts;
             *heart = Heart {
                 bpm: tier.bpm as f32,
@@ -733,6 +805,7 @@ fn on_death(
     mut deaths: MessageReader<PlayerDied>,
     mut menu: ResMut<Menu>,
     mut run: ResMut<Run>,
+    upgrades: Res<Upgrades>,
     handle: Res<HeartHandle>,
     tunings: Res<Assets<HeartAsset>>,
     sounds: Option<Res<Sounds>>,
@@ -744,11 +817,11 @@ fn on_death(
     if deaths.read().count() == 0 || !run.started {
         return;
     }
-    if run.perk == Some(Perk::SecondHeart) && !run.second_heart_used {
+    if run.perk == Some(Perk::SecondHeart) && run.revives_used < upgrades.revives() {
         let share = tunings
             .get(&handle.0)
-            .map_or(0.5, |t| t.second_heart_health);
-        run.second_heart_used = true;
+            .map_or(0.5, |t| upgrades.perk_tuning(t).second_heart_health);
+        run.revives_used += 1;
         let max = health.max;
         health.revive(max * share);
         heart.blood = heart.blood.max(0.5);
@@ -771,6 +844,8 @@ fn on_cleared(
     mut cleared: MessageReader<LevelCleared>,
     mut menu: ResMut<Menu>,
     mut run: ResMut<Run>,
+    upgrades: Res<Upgrades>,
+    current: Res<CurrentLevel>,
     sounds: Option<Res<Sounds>>,
     mut heart: ResMut<Heart>,
     mut time: ResMut<Time<Virtual>>,
@@ -781,7 +856,15 @@ fn on_cleared(
     }
     run.started = false;
     heart.held = false;
-    menu.screen = Screen::Cleared;
+    // An upgrade, if there's a next level to use it in and anything left to
+    // upgrade.
+    let more = next_level(current.index).is_some() && !upgrades.offers(run.perk).is_empty();
+    menu.screen = if more {
+        Screen::Upgrade
+    } else {
+        Screen::Cleared
+    };
+    menu.got = None;
     menu.selected = 0;
     if let Some(sounds) = &sounds {
         sfx::play(&mut commands, &sounds.heartbeat);
@@ -824,19 +907,59 @@ mod tests {
     fn every_tier_perk_and_level_gets_a_choice() {
         let tuning = tuning();
         let current = CurrentLevel::default();
-        let tiers = choices(Screen::HeartRate, &tuning, &current);
+        let tiers = choices(
+            Screen::HeartRate,
+            &tuning,
+            &current,
+            &Upgrades::default(),
+            None,
+        );
         assert_eq!(tiers.len(), tuning.tiers.len());
         assert!(tiers.last().unwrap().contains("PERK"));
         assert!(!tiers[0].contains("PERK"));
         assert_eq!(
-            choices(Screen::Perk, &tuning, &current).len(),
+            choices(Screen::Perk, &tuning, &current, &Upgrades::default(), None).len(),
             Perk::ALL.len()
         );
         // Every level but training.
-        let levels = choices(Screen::Levels, &tuning, &current);
+        let levels = choices(
+            Screen::Levels,
+            &tuning,
+            &current,
+            &Upgrades::default(),
+            None,
+        );
         assert_eq!(levels.len(), COUNT - 1);
         assert!(levels[0].contains(levels::info(1).0));
-        assert!(choices(Screen::Hidden, &tuning, &current).is_empty());
+        assert!(
+            choices(
+                Screen::Hidden,
+                &tuning,
+                &current,
+                &Upgrades::default(),
+                None
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn every_upgrade_on_offer_gets_a_card() {
+        let current = CurrentLevel::default();
+        let mut upgrades = Upgrades::default();
+        let cards = choices(
+            Screen::Upgrade,
+            &tuning(),
+            &current,
+            &upgrades,
+            Some(Perk::Pulse),
+        );
+        assert_eq!(cards.len(), 6);
+        assert!(cards[4].contains("QUAD LAUNCHER"), "{cards:?}");
+        upgrades.take(Offer::Weapon(crate::weapon::WeaponKind::Launcher));
+        let cards = choices(Screen::Upgrade, &tuning(), &current, &upgrades, None);
+        assert_eq!(cards.len(), 5);
+        assert!(cards[4].contains("HOMING"), "{cards:?}");
     }
 
     #[test]
@@ -849,13 +972,25 @@ mod tests {
             index: COUNT - 1,
             ..default()
         };
-        let last = choices(Screen::Cleared, &tuning(), &current);
+        let last = choices(
+            Screen::Cleared,
+            &tuning(),
+            &current,
+            &Upgrades::default(),
+            None,
+        );
         assert_eq!(last[0], "MAIN MENU");
         let current = CurrentLevel {
             index: 1,
             ..default()
         };
-        let first = choices(Screen::Cleared, &tuning(), &current);
+        let first = choices(
+            Screen::Cleared,
+            &tuning(),
+            &current,
+            &Upgrades::default(),
+            None,
+        );
         assert!(first[0].starts_with("NEXT"), "{first:?}");
     }
 
