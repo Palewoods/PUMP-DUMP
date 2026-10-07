@@ -4512,7 +4512,7 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "pumpdump"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bevy",
  "leafwing-input-manager",
@@ -4523,7 +4523,7 @@ dependencies = [
 
 [[package]]
 name = "pumpdump-movement"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "glam 0.32.1",
  "parry3d",
